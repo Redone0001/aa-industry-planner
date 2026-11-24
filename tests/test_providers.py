@@ -25,7 +25,7 @@ def test_asset_import_uses_all_pages_and_passes_token_object():
     client.Assets.GetCorporationsCorporationIdAssets.assert_called_once_with(
         corporation_id=98000001, token=source.token
     )
-    operation.results.assert_called_once_with()
+    operation.results.assert_called_once_with(use_etag=False)
 
 
 def test_job_import_requests_completed_jobs():

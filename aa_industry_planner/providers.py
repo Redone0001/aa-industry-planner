@@ -1,4 +1,4 @@
-"""Use django-esi's token refresh, pagination, ETag cache and rate limiting."""
+"""Use django-esi's token refresh, pagination, response cache and rate limiting."""
 
 from django.conf import settings
 from esi.openapi_clients import ESIClientProvider
@@ -53,14 +53,21 @@ def unpack(value):
 
 
 class ESI:
+    # These consumers need complete bodies, even when unchanged. ETag mode raises
+    # HTTPNotModified for cached responses too. Disable conditional ETag reads;
+    # keep response caching, cache expiry, pagination and rate limits enabled.
     def character(self, character_id):
-        return unpack(esi.client.Character.GetCharactersDetail(character_id=character_id).result())
+        return unpack(
+            esi.client.Character.GetCharactersDetail(character_id=character_id).result(
+                use_etag=False
+            )
+        )
 
     def roles(self, token):
         return unpack(
             esi.client.Character.GetCharactersCharacterIdRoles(
                 character_id=token.character_id, token=token
-            ).result()
+            ).result(use_etag=False)
         )
 
     def assets(self, source):
@@ -72,7 +79,7 @@ class ESI:
             operation = esi.client.Assets.GetCharactersCharacterIdAssets(
                 character_id=source.owner_id, token=source.token
             )
-        return unpack(operation.results())
+        return unpack(operation.results(use_etag=False))
 
     def jobs(self, source):
         if source.kind == "corporation":
@@ -83,10 +90,10 @@ class ESI:
             operation = esi.client.Industry.GetCharactersCharacterIdIndustryJobs(
                 character_id=source.owner_id, include_completed=True, token=source.token
             )
-        return unpack(operation.results())
+        return unpack(operation.results(use_etag=False))
 
     def indices(self):
-        return unpack(esi.client.Industry.GetIndustrySystems().result())
+        return unpack(esi.client.Industry.GetIndustrySystems().result(use_etag=False))
 
     def prices(self):
-        return unpack(esi.client.Market.GetMarketsPrices().result())
+        return unpack(esi.client.Market.GetMarketsPrices().result(use_etag=False))
