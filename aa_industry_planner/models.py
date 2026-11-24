@@ -460,6 +460,7 @@ class PlanStep(models.Model):
     runs = models.PositiveBigIntegerField()
     output_quantity = models.PositiveBigIntegerField()
     completed_quantity = models.PositiveBigIntegerField(default=0)
+    ongoing_quantity = models.PositiveBigIntegerField(default=0)
     service = models.ForeignKey(FacilityService, null=True, on_delete=models.SET_NULL)
     details = models.JSONField(default=dict)
 
@@ -477,6 +478,31 @@ class PlanStep(models.Model):
             else 100
         )
 
+    @property
+    def ongoing_progress(self):
+        return (
+            min(
+                100,
+                int(100 * (self.ongoing_quantity + self.completed_quantity) / self.output_quantity),
+            )
+            - self.progress
+            if self.output_quantity
+            else 0
+        )
+
+
+class PlanChecklistItem(models.Model):
+    plan = models.ForeignKey(ProductionPlan, on_delete=models.CASCADE, related_name="checklist")
+    item_type_id = models.PositiveBigIntegerField()
+    checked = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["plan", "item_type_id"], name="aip_unique_checklist_item"
+            )
+        ]
+
 
 class IndustryJob(models.Model):
     user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="industry_jobs")
@@ -490,6 +516,7 @@ class IndustryJob(models.Model):
     runs = models.PositiveIntegerField()
     successful_runs = models.PositiveIntegerField(null=True)
     status = models.CharField(max_length=30)
+    auto_link_disabled = models.BooleanField(default=False)
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
     cost = models.DecimalField(max_digits=24, decimal_places=2, null=True)

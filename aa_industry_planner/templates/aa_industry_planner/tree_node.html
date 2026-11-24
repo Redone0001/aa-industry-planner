@@ -3,7 +3,7 @@
 {% elif branch.children %}
 <details class="aip-tree-node" data-tree-depth="{{ branch.depth }}" id="tree-node-{{ branch.item.id }}" {% if branch.depth == 0 %}open{% endif %}>
   <summary>{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity expandable=True %}</summary>
-  <div class="aip-tree-children">{% for child in branch.children %}{% include 'aa_industry_planner/tree_node.html' with branch=child only %}{% endfor %}</div>
+  <div class="aip-tree-children">{% for child in branch.children %}{% include 'aa_industry_planner/tree_node.html' with branch=child %}{% endfor %}</div>
 </details>
 {% else %}
 <div class="aip-tree-node aip-tree-leaf" id="tree-node-{{ branch.item.id }}" tabindex="-1">{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity %}</div>

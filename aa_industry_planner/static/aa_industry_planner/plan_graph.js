@@ -98,7 +98,11 @@
     close.addEventListener("click", clear);
     const heading = element("div", "aip-section-heading");
     heading.append(element("h3", "h6", node.name), close);
-    inspector.append(heading, element("p", "mb-2", `${node.kind_label} · ${number(node.required)} needed across this plan`));
+    inspector.append(heading, element("p", "aip-state-badge mb-2", node.state_label), element("p", "mb-2", `${node.kind_label} · ${number(node.required)} needed across this plan`));
+    inspector.querySelector('.aip-state-badge').dataset.state = node.state;
+    if (node.step) inspector.append(element("p", "mb-2", `${node.progress}% completed · ${node.ongoing}% ongoing`));
+    const reminder = document.querySelector(`[data-checklist][data-item-id="${id}"]`);
+    if (reminder) inspector.append(reminder.cloneNode(true));
     if (node.stock) {
       inspector.append(element("p", "mb-2", `${number(node.stock)} from stock`));
       (node.stock_locations || []).forEach(allocation => inspector.append(element("p", "small mb-1", `${number(allocation.quantity)} at ${allocation.name}${allocation.transfer ? " · transport to the assigned industry location" : ""}`)));
@@ -154,23 +158,27 @@
     path.setAttribute("d", `M ${sx} ${sy} C ${mid} ${sy}, ${mid} ${ty}, ${tx} ${ty}`);
     path.setAttribute("vector-effect", "non-scaling-stroke");
     svg.append(path); edgeElements.push({el: path, edge});
+    path.dataset.state = target.state;
+    if (target.shared) path.dataset.shared = "true";
   });
   world.style.width = `${data.width}px`; world.style.height = `${data.height}px`;
   world.append(svg);
   data.nodes.forEach(node => {
-    const button = element("button", `aip-graph-node text-start kind-${node.kind}`);
+    const button = element("button", `aip-graph-node text-start${node.checked ? " is-reviewed" : ""}`);
     button.type = "button"; button.dataset.graphNode = node.id;
+    button.dataset.state = node.state; button.dataset.shared = String(node.shared); button.dataset.reviewItem = node.id;
     button.style.left = `${node.x}px`; button.style.top = `${node.y}px`;
     button.style.width = `${node.width}px`; button.style.height = `${node.height}px`;
     button.title = `${node.name}\n${node.kind_label} · ${number(node.required)} needed`;
-    button.setAttribute("aria-label", `${node.name}. ${node.kind_label}. ${number(node.required)} needed.${node.step ? ` Step ${node.step}, ${node.progress}% complete.` : ""}`);
+    button.setAttribute("aria-label", `${node.name}. ${node.kind_label}. ${node.state_label}. ${number(node.required)} needed.${node.step ? ` Step ${node.step}, ${node.progress}% completed, ${node.ongoing}% ongoing.` : ""}${node.shared ? " Shared input." : ""}`);
     const heading = element("span", "aip-graph-node-heading");
     heading.append(icon(node.id), element("strong", "aip-graph-node-name", node.name));
     button.append(heading, element("strong", "aip-graph-node-quantity", `Need ${number(node.required)}`));
     const caption = node.output ? `Make ${number(node.output)}${node.stock ? ` · Stock ${number(node.stock)}` : ""}` : node.kind === "buy" ? `Buy ${number(node.missing)}${node.stock ? ` · Stock ${number(node.stock)}` : ""}` : `Stock ${number(node.stock)}`;
     button.append(element("span", "aip-graph-node-caption", caption));
+    button.append(element("span", "aip-graph-node-status", node.state_label));
     const footer = element("span", "aip-graph-node-footer");
-    footer.append(element("span", "aip-graph-kind", node.kind_label), element("span", "", node.step ? `Step ${node.step} · ${node.progress}%` : node.shared ? "Shared input" : ""));
+    footer.append(element("span", "aip-graph-kind", node.kind_label), element("span", "", node.step ? `✓ ${node.progress}% · ▶ ${node.ongoing}%` : node.shared ? "Shared input" : ""));
     button.append(footer);
     button.addEventListener("click", () => inspect(node.id));
     button.addEventListener("focus", () => {

@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from django.db import transaction
 from django.db.models import Sum
 
@@ -6,19 +8,44 @@ from aa_industry_planner.models import ACTIVITY_IDS, IndustryJob, JobAllocation,
 from .inventory import authorized_sources
 
 
-def job_output(job):
+def job_output(job, products=None):
     from eve_sde.models import BlueprintActivityProduct
 
     activity = {v: k for k, v in ACTIVITY_IDS.items()}.get(job.activity_id)
     if not activity or not job.product_type_id:
         return 0
-    product = BlueprintActivityProduct.objects.filter(
-        blueprint_activity__blueprint_item_type_id=job.blueprint_type_id,
-        blueprint_activity__activity=activity,
-        item_type_id=job.product_type_id,
-    ).first()
-    runs = job.successful_runs if job.successful_runs is not None else job.runs
-    return runs * (product.quantity or 0) if product else 0
+    if products is None:
+        quantity = (
+            BlueprintActivityProduct.objects.filter(
+                blueprint_activity__blueprint_item_type_id=job.blueprint_type_id,
+                blueprint_activity__activity=activity,
+                item_type_id=job.product_type_id,
+            )
+            .values_list("quantity", flat=True)
+            .first()
+        )
+    else:
+        quantity = products.get((job.blueprint_type_id, activity, job.product_type_id))
+    # Manufacturing and reactions are deterministic. successful_runs describes invention,
+    # and can be absent or zero while a deterministic job is still active.
+    return job.runs * (quantity or 0)
+
+
+def job_outputs(jobs):
+    from eve_sde.models import BlueprintActivityProduct
+
+    products = {
+        (bp, activity, item): quantity
+        for bp, activity, item, quantity in BlueprintActivityProduct.objects.filter(
+            blueprint_activity__blueprint_item_type_id__in={j.blueprint_type_id for j in jobs}
+        ).values_list(
+            "blueprint_activity__blueprint_item_type_id",
+            "blueprint_activity__activity",
+            "item_type_id",
+            "quantity",
+        )
+    }
+    return {job.pk: job_output(job, products) for job in jobs}
 
 
 def compatible(job, step):
@@ -36,7 +63,7 @@ def compatible(job, step):
 
 
 @transaction.atomic
-def allocate_job(user, job_id, step_id):
+def allocate_job(user, job_id, step_id, *, refresh_progress=True):
     job = IndustryJob.objects.select_for_update().get(
         pk=job_id, user=user, source__in=authorized_sources(user)
     )
@@ -51,6 +78,7 @@ def allocate_job(user, job_id, step_id):
         raise ValueError("This job is already assigned to another step.")
     assigned = (
         step.allocations.exclude(job=job)
+        .filter(job__source__in=authorized_sources(user))
         .exclude(job__status__in=["cancelled", "reverted"])
         .aggregate(total=Sum("quantity"))["total"]
         or 0
@@ -59,28 +87,59 @@ def allocate_job(user, job_id, step_id):
     if not quantity:
         raise ValueError("This step is already covered or the job has no known output.")
     JobAllocation.objects.update_or_create(job=job, defaults={"step": step, "quantity": quantity})
-    update_progress(user)
+    if job.auto_link_disabled:
+        IndustryJob.objects.filter(pk=job.pk).update(auto_link_disabled=False)
+    if refresh_progress:
+        update_progress(user)
 
 
 def update_progress(user):
     sources = authorized_sources(user)
-    for step in PlanStep.objects.filter(plan__user=user, plan__archived=False):
-        quantity = (
-            step.allocations.filter(
-                job__source__in=sources, job__status__in=["ready", "delivered"]
-            ).aggregate(total=Sum("quantity"))["total"]
-            or 0
-        )
-        # cancelled/reverted jobs free their allocation for a replacement.
-        step.allocations.filter(job__status__in=["cancelled", "reverted"]).delete()
-        PlanStep.objects.filter(pk=step.pk).update(
-            completed_quantity=min(quantity, step.output_quantity)
-        )
+    steps = list(PlanStep.objects.filter(plan__user=user, plan__archived=False))
+    allocations = list(
+        JobAllocation.objects.filter(step__in=steps)
+        .select_related("job")
+        .order_by("job__start_date", "job__job_id")
+    )
+    outputs = job_outputs([a.job for a in allocations])
+    allowed = set(sources.values_list("pk", flat=True))
+    grouped = defaultdict(list)
+    cancelled, changed = [], []
+    for allocation in allocations:
+        grouped[allocation.step_id].append(allocation)
+    for step in steps:
+        completed = ongoing = 0
+        # Credit finished output first, so a finishing oversize job contributes its full output.
+        for allocation in sorted(grouped[step.pk], key=lambda a: not a.job.finished):
+            job = allocation.job
+            if job.status in {"cancelled", "reverted"}:
+                cancelled.append(allocation.pk)
+                continue
+            quantity = 0
+            if job.source_id in allowed and job.status in {
+                "active",
+                "paused",
+                "ready",
+                "delivered",
+            }:
+                quantity = min(outputs[job.pk], max(0, step.output_quantity - completed - ongoing))
+                if job.finished:
+                    completed += quantity
+                else:
+                    ongoing += quantity
+            if allocation.quantity != quantity:
+                allocation.quantity = quantity
+                changed.append(allocation)
+        step.completed_quantity, step.ongoing_quantity = completed, ongoing
+    JobAllocation.objects.filter(pk__in=cancelled).delete()
+    JobAllocation.objects.bulk_update(changed, ["quantity"])
+    PlanStep.objects.bulk_update(steps, ["completed_quantity", "ongoing_quantity"])
 
 
 def reconcile_jobs(user):
     from allianceauth.authentication.models import CharacterOwnership
 
+    update_progress(user)
     owned = CharacterOwnership.objects.filter(user=user).values_list(
         "character__character_id", flat=True
     )
@@ -90,6 +149,7 @@ def reconcile_jobs(user):
         installer_id__in=owned,
         status__in=["active", "paused", "ready", "delivered"],
         allocation__isnull=True,
+        auto_link_disabled=False,
     ).order_by("start_date", "job_id")
     steps = list(
         PlanStep.objects.filter(plan__user=user, plan__archived=False)
@@ -103,7 +163,7 @@ def reconcile_jobs(user):
                 continue
             if compatible(job, step):
                 try:
-                    allocate_job(user, job.pk, step.pk)
+                    allocate_job(user, job.pk, step.pk, refresh_progress=False)
                 except ValueError:
                     continue
                 break

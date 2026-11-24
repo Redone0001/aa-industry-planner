@@ -197,11 +197,47 @@
 .aip-source-summary { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
 .aip-job-sources > summary { cursor: pointer; font-weight: 600; }
 
+/* The same availability colours apply to the graph, tree and production sequence. */
+.aip [data-state="stock"], .aip [data-state="complete"] { --aip-state: #218655; }
+.aip [data-state="ready"] { --aip-state: #2787dd; }
+.aip [data-state="active"] { --aip-state: #9867d7; }
+.aip [data-state="buy"] { --aip-state: #d99a20; }
+.aip [data-state="blocked"] { --aip-state: #87939e; }
+.aip .aip-graph-node, .aip .aip-tree-line, .aip .aip-step {
+  border: 2px solid var(--aip-state, var(--bs-border-color));
+  background: color-mix(in srgb, var(--aip-state) 12%, var(--bs-body-bg));
+}
+.aip .aip-step { margin-block: 1rem; padding: 1.25rem; border-radius: .5rem; }
+.aip .aip-graph-node[data-state="stock"], .aip .aip-tree-line[data-state="stock"],
+.aip .aip-graph-node[data-state="complete"], .aip .aip-tree-line[data-state="complete"] { background: #187344; color: #fff; }
+.aip [data-state="stock"] .aip-graph-node-caption, .aip [data-state="stock"] .aip-graph-node-footer,
+.aip [data-state="complete"] .aip-graph-node-caption, .aip [data-state="complete"] .aip-graph-node-footer { color: #ffffffdf; }
+.aip .aip-tree-line[data-state="stock"] small, .aip .aip-tree-line[data-state="complete"] small { color: #ffffffdf; }
+.aip .aip-graph-node[data-shared="true"], .aip .aip-tree-line[data-shared="true"], .aip .aip-step[data-shared="true"] { border-style: dashed; }
+.aip .aip-build-legend > [data-state]::before { background: var(--aip-state); }
+.aip .aip-build-legend > .aip-shared-legend::before { background: transparent; border: 2px dashed currentColor; width: 1.1rem; height: .8rem; }
+.aip .aip-graph-edges path[data-state] { stroke: var(--aip-state); }
+.aip .aip-graph-edges path[data-shared="true"] { stroke-dasharray: 6 4; }
+.aip-state-badge { display: inline-block; border: 1px solid var(--aip-state); border-radius: 2rem; padding: .25rem .6rem; font-size: .8rem; font-weight: 600; background: color-mix(in srgb, var(--aip-state) 18%, var(--bs-body-bg)); }
+.aip-graph-node-status { display: block; font-size: 11px; font-weight: 650; line-height: 18px; margin-top: 3px; }
+.aip-ongoing-bar { background: #9867d7; }
+.aip-checklist { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-block: .4rem; font-size: .8rem; }
+.aip-checklist label { display: inline-flex; align-items: center; gap: .4rem; cursor: pointer; }
+.aip-checklist .form-check-input { margin: 0; }
+.aip-checklist-feedback { font-size: .7rem; }
+.aip .is-reviewed .aip-tree-name > strong, .aip .is-reviewed .aip-graph-node-name,
+.aip .is-reviewed .aip-step-body > .aip-section-heading h3, .aip tr.is-reviewed > td:first-child { text-decoration: line-through; text-decoration-thickness: 1px; }
+.aip-tree-controls { display: grid; justify-items: end; gap: .3rem; }
+.aip-tree-controls .badge { white-space: normal; }
+.aip-tree-controls .aip-checklist { justify-content: end; }
+
 @media (max-width: 850px) {
   .aip-tree-line { grid-template-columns: 12px 30px minmax(0, 1fr); gap: .5rem; }
   .aip-tree-line > .aip-item-icon { width: 30px; height: 30px; }
   .aip-tree-metrics { grid-column: 3; text-align: left; gap: .75rem; }
   .aip-tree-line > .badge { grid-column: 3; justify-self: start; }
+  .aip-tree-controls { grid-column: 3; justify-items: start; }
+  .aip-tree-controls .aip-checklist { justify-content: start; }
   .aip-graph-layout { flex-direction: column; }
   .aip-graph-inspector { width: 100%; max-width: none; max-height: none; }
   .aip-graph-viewport { flex: auto; height: 480px; }

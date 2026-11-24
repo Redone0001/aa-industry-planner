@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.12 treats reaction batch settings as maximum job sizes and produces only the required runs in the final job. Materials, time and installation fees follow the actual runs. Corporation hangar contents resolve through their office to the configured structure; virtual office records are excluded from usable stock. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.13 adds EVE Multibuy copying, persistent item reminders, availability colours across the graph/tree/steps, location-aware readiness and separate ongoing/completed job coverage. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.12 adds no new migrations or dependencies; migration `0006` from v0.1.10 remains required for storage assignments and declared-stock structures; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.13 requires migration `0007` for reminders, ongoing quantities and explicit job unlink preferences; it adds no dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -171,6 +171,14 @@ Saved calculations retain their original snapshot. Old calculations that used po
 
 ## Reading the production chain
 
+The graph, tree and production sequence share availability colours: **solid green** for stock/completed output, **blue** for ready to craft, **purple** for active/paused jobs, **amber** for buy/import and **grey** for missing inputs. A **dashed border** identifies a shared input while retaining its availability colour. Activity names still distinguish manufacturing and reactions.
+
+Readiness uses the latest authorized, included inventory at each step’s saved production/storage locations, with a visible online production service. It requires all remaining input materials, accounts for completed runs and per-job material rounding, and allocates shared stock once in production order. Storage supplies are marked for hauling. Running or undelivered job output is never assumed to be available stock; downstream steps become ready after delivery and the next asset import. Readiness is a view-time check, not a reservation or live EVE access/skills check. Historic plans without saved location scopes need a refresh.
+
+**Reviewed** checkboxes are private, persistent reminders for every item, available in the tree, graph inspector, production steps and buy list. Matching entries stay synchronized. Checks survive plan refreshes, visually cross out the item name and do not change stock, quantities, readiness or job completion. Archived plans display the saved reminders without editing them.
+
+**Buy / import list → Copy buy all** copies each net shortage as `Item name quantity`, one line per item with ungrouped integer quantities, for EVE Multibuy. **Copy unchecked** excludes reviewed buy items. The expandable text area provides a manual-copy fallback. These quantities come from the saved calculation; refresh the plan to recalculate shortages after stock changes.
+
 **Build overview** switches between **Graph** and **Tree**, using the same saved plan snapshot. The graph places the finished item on the left and inputs to the right, with each shared input shown once. Cards show plan-wide demand, stock and output or buying needs. Select an item to highlight its direct connections, inspect quantities for each input and consumer, or jump to its production step.
 
 Drag the graph background to pan. Use the zoom buttons or Ctrl/Command + scroll; **Fit graph** shows the whole chain and **Readable zoom** returns to legible cards near the finished product. Fullscreen provides more room. Keyboard users can focus the graph and use arrows to pan, `+`/`-` to zoom and `0` to fit. Tabbing to an offscreen item brings it into view.
@@ -217,7 +225,9 @@ Refreshing uses django-esi's token refresh, HTTP response cache, pagination and 
 
 ## Job progress and inventory semantics
 
-Plans contain one production step per produced type, in dependency order. Jobs must match the product, blueprint, activity and configured facility. Automatically matched jobs must be installed by one of the user's AA characters. Explicit linking can assign another visible corporation job. A job can be allocated to only one step; its output is capped at that step's remaining requirement. Overproduction is shown in the plan's calculated output.
+Plans contain one production step per produced type, in dependency order. Jobs must match the product, blueprint, activity and configured facility. Automatically matched jobs must be installed by one of the user's AA characters. Explicit linking can assign another visible corporation job. A job can be allocated to only one step; its output is capped at that step's remaining requirement. Linked jobs show their actual output alongside the quantity credited to the plan. Multiple jobs can cover a single step: two active jobs of 50 units against a 98-unit step show **100% ongoing and 0% completed**, with 98 units credited and 100 units of actual job output. Finished jobs receive credit first; completed plus ongoing coverage is capped at the planned output. Active/paused quantities are separate from completion.
+
+Jobs reconcile after ESI imports, when creating/refreshing a plan, and when opening a plan. The oldest compatible active plan takes priority when several plans match; jobs are never counted twice across plans. Unlinking a job disables its automatic matching until it is explicitly linked again.
 
 `ready` and `delivered` complete an allocated step. Elapsed time alone does not complete a job, and cancelled/reverted jobs release their allocation. Ready output is not included in inventory before delivery. The initial import does not notify for historical completions.
 
@@ -235,7 +245,7 @@ In Django admin, add **Industry Planner → Planner configuration** and set `dis
 
 ```sh
 python -m pytest
-node --test tests/type_search.test.cjs
+node --test tests/*.test.cjs
 python -m django check --settings=tests.settings
 python -m django makemigrations aa_industry_planner --check --dry-run --settings=tests.settings
 ruff check aa_industry_planner tests

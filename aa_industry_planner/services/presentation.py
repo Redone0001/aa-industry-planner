@@ -3,13 +3,13 @@
 from collections import defaultdict, deque
 
 NODE_WIDTH = 240
-NODE_HEIGHT = 118
+NODE_HEIGHT = 136
 ROW_GAP = 26
 COLUMN_GAP = 92
 PADDING = 32
 
 
-def plan_views(snapshot, steps):
+def plan_views(snapshot, steps, checked=()):
     raw = snapshot.get("nodes", {})
     root_id = int(snapshot["product_id"])
     nodes = {}
@@ -22,6 +22,16 @@ def plan_views(snapshot, steps):
         step = steps.get(tid, {})
         kind = (
             recipe.get("activity") if row.get("runs") else "buy" if row.get("missing") else "stock"
+        )
+        state = step.get(
+            "state",
+            "stock"
+            if kind == "stock"
+            else "buy"
+            if kind == "buy"
+            else "complete"
+            if step.get("progress") == 100
+            else "blocked",
         )
         nodes[tid] = {
             "id": tid,
@@ -44,6 +54,18 @@ def plan_views(snapshot, steps):
             "runs": row.get("runs", 0),
             "step": step.get("position"),
             "progress": step.get("progress", 0),
+            "ongoing": step.get("ongoing", 0),
+            "ongoing_quantity": step.get("ongoing_quantity", 0),
+            "state": state,
+            "state_label": {
+                "stock": "In stock",
+                "complete": "Completed",
+                "ready": "Ready to craft",
+                "active": "Job active",
+                "buy": "Buy / import",
+                "blocked": "Missing inputs",
+            }[state],
+            "checked": tid in checked,
             "me": context.get("me", 0),
             "te": context.get("te", 0),
             "width": NODE_WIDTH,

@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 from eve_sde.models import ItemType
@@ -31,6 +32,7 @@ from .models import (
     ActivityStorageLocation,
     Facility,
     FacilityAssignment,
+    FacilityService,
     IndustryJob,
     InventorySource,
     InventoryWatch,
@@ -39,17 +41,24 @@ from .models import (
     ManualStock,
     Notification,
     NotificationPreferences,
+    PlanChecklistItem,
     PlanStep,
     ProductionPlan,
     ReplenishmentTask,
     SystemCostIndex,
     UserPreferences,
 )
-from .services.inventory import authorized_sources, inventory_totals, source_overview
-from .services.jobs import allocate_job, update_progress
+from .services.inventory import (
+    authorized_sources,
+    inventory_by_location,
+    inventory_totals,
+    source_overview,
+)
+from .services.jobs import allocate_job, job_outputs, reconcile_jobs, update_progress
 from .services.planning import create_plan
 from .services.planning import refresh_plan as refresh_production_plan
 from .services.presentation import plan_views
+from .services.readiness import annotate_steps, multibuy_text
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
 
@@ -134,7 +143,7 @@ def plan_detail(request, pk):
 
 
 def _plan_page(request, production, settings_form=None, blueprints_formset=None):
-    update_progress(request.user)
+    reconcile_jobs(request.user)
     steps = list(
         production.steps.select_related("item_type", "service__facility").prefetch_related(
             "allocations__job"
@@ -143,15 +152,38 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     snapshot = production.snapshot
     nodes = snapshot.get("nodes", {})
     step_map = {step.item_type_id: step for step in steps}
+    checked = set(production.checklist.filter(checked=True).values_list("item_type_id", flat=True))
+    services = set(
+        FacilityService.objects.filter(
+            online=True, facility__in=Facility.visible_to(request.user)
+        ).values_list("pk", flat=True)
+    )
+    annotate_steps(steps, inventory_by_location(request.user), checked, available_services=services)
+    allocations = [a for s in steps for a in s.allocations.all()]
+    outputs = job_outputs([a.job for a in allocations])
+    for allocation in allocations:
+        allocation.actual_output = outputs[allocation.job_id]
 
     tree, dependency_graph = plan_views(
         snapshot,
         {
-            tid: {"position": step.position, "progress": step.progress}
+            tid: {
+                "position": step.position,
+                "progress": step.progress,
+                "ongoing": step.ongoing_progress,
+                "ongoing_quantity": step.ongoing_quantity,
+                "state": step.state,
+            }
             for tid, step in step_map.items()
         },
+        checked,
     )
-    inputs = [n for n in nodes.values() if n["missing"] and not n["runs"]]
+    inputs = [
+        dict(n, checked=int(tid) in checked)
+        for tid, n in nodes.items()
+        if n["missing"] and not n["runs"]
+    ]
+    graph_nodes = {n["id"]: n for n in dependency_graph["nodes"]}
     dependencies = {
         s.item_type_id: [
             step_map[int(t)].position for t in s.details.get("materials", {}) if int(t) in step_map
@@ -160,6 +192,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     }
     for step in steps:
         step.dependency_positions = dependencies[step.item_type_id]
+        step.shared = graph_nodes.get(step.item_type_id, {}).get("shared", False)
     visible_jobs = IndustryJob.objects.filter(
         user=request.user, source__in=authorized_sources(request.user), allocation__isnull=True
     ).exclude(status__in=["cancelled", "reverted"])
@@ -187,6 +220,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         legacy_inventory_scope=snapshot.get("inventory_used", True)
         and "inventory_locations" not in snapshot,
         inputs=inputs,
+        multibuy=multibuy_text(inputs),
         candidate_jobs=visible_jobs[:300],
         settings_form=settings_form,
         blueprints_formset=blueprints_formset,
@@ -537,9 +571,25 @@ def link_job(request, pk):
 def unlink_job(request, pk):
     allocation = get_object_or_404(JobAllocation, pk=pk, step__plan__user=request.user)
     plan_id = allocation.step.plan_id
+    IndustryJob.objects.filter(pk=allocation.job_id).update(auto_link_disabled=True)
     allocation.delete()
     update_progress(request.user)
     return redirect("aa_industry_planner:plan", pk=plan_id)
+
+
+@planner_access
+@require_POST
+def check_plan_item(request, pk, item_id):
+    production = get_object_or_404(ProductionPlan, pk=pk, user=request.user, archived=False)
+    if str(item_id) not in production.snapshot.get("nodes", {}):
+        raise Http404
+    checked = request.POST.get("checked") == "on"
+    PlanChecklistItem.objects.update_or_create(
+        plan=production, item_type_id=item_id, defaults={"checked": checked}
+    )
+    if request.headers.get("Accept") == "application/json":
+        return JsonResponse({"checked": checked, "item_id": item_id})
+    return redirect(reverse("aa_industry_planner:plan", args=[pk]) + f"#tree-node-{item_id}")
 
 
 @planner_access
