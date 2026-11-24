@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.14 adds production-step filters for unfinished output, ready inputs and checked reminders, alongside the Multibuy list, availability colours and ongoing/completed job coverage. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.15 fixes ESI reaction activity 9 matching, adds assignment/reassignment controls and unmatched-job explanations in All jobs, and orders that list by newest start time first. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.14 adds no migrations or dependencies. Migration `0007` from v0.1.13 remains required for reminders, ongoing quantities and explicit job unlink preferences; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.15 adds no migrations or dependencies. Migration `0007` from v0.1.13 remains required for reminders, ongoing quantities and explicit job unlink preferences; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -227,9 +227,15 @@ Refreshing uses django-esi's token refresh, HTTP response cache, pagination and 
 
 ## Job progress and inventory semantics
 
+Reaction job activity IDs **9 and 11** both map to the SDE’s `reaction` recipes for matching, output quantities and inventory-watch coverage. Earlier releases labelled both as Reactions but only matched ID 11, leaving ID-9 jobs unlinked with no known output. [ESI issue #997](https://github.com/esi/esi-issues/issues/997) includes ID 9 for Silicon Diborite formula 46179; [issue #894](https://github.com/esi/esi-issues/issues/894) lists both reaction IDs. Existing imported jobs work without reimporting after this update. Open All jobs or a plan to reconcile them.
+
 Plans contain one production step per produced type, in dependency order. Jobs must match the product, blueprint, activity and configured facility. Automatically matched jobs must be installed by one of the user's AA characters. Explicit linking can assign another visible corporation job. A job can be allocated to only one step; its output is capped at that step's remaining requirement. Linked jobs show their actual output alongside the quantity credited to the plan. Multiple jobs can cover a single step: two active jobs of 50 units against a 98-unit step show **100% ongoing and 0% completed**, with 98 units credited and 100 units of actual job output. Finished jobs receive credit first; completed plus ongoing coverage is capped at the planned output. Active/paused quantities are separate from completion.
 
-Jobs reconcile after ESI imports, when creating/refreshing a plan, and when opening a plan. The oldest compatible active plan takes priority when several plans match; jobs are never counted twice across plans. Unlinking a job disables its automatic matching until it is explicitly linked again.
+Jobs reconcile after ESI imports, when creating/refreshing a plan, and when opening a plan or All jobs. The oldest compatible active plan takes priority when several plans match; jobs are never counted twice across plans. Unlinking a job disables its automatic matching until it is explicitly linked again.
+
+**All jobs** sorts by descending start time, then descending EVE job ID for ties, and displays both Started and Finishes. Each row’s **Assign plan / Change plan** control lists compatible active steps with remaining demand. **Save assignment** moves the job atomically, preserving the original link if validation fails, and recalculates both plans’ coverage (including the old step when its plan is archived). Product, blueprint/formula, activity, structure, current source authorization and capacity checks still apply. Another visible corporation installer’s job and finished history can be assigned manually. **Unassigned (disable auto-link)** removes the assignment and prevents it being immediately claimed again; assigning a plan re-enables matching. Status and page filters are retained.
+
+Unassigned jobs show why they are not linked: no matching active product/recipe/activity, a structure mismatch (including actual and expected IDs), an unavailable SDE output, covered steps, disabled automatic matching, a different installer or historical finished work. Unsupported science activities remain visible without production assignments.
 
 `ready` and `delivered` complete an allocated step. Elapsed time alone does not complete a job, and cancelled/reverted jobs release their allocation. Ready output is not included in inventory before delivery. The initial import does not notify for historical completions.
 

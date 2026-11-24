@@ -196,6 +196,8 @@
 [data-graph-pane]:fullscreen .aip-graph-viewport, [data-graph-pane]:fullscreen .aip-graph-inspector { height: calc(100vh - 9rem); max-height: calc(100vh - 9rem); }
 .aip-source-summary { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
 .aip-job-sources > summary { cursor: pointer; font-weight: 600; }
+.aip-job-assignment { min-width: 13rem; max-width: 24rem; }
+.aip-job-assignment .form-select { min-width: 0; max-width: 24rem; }
 
 /* The same availability colours apply to the graph, tree and production sequence. */
 .aip [data-state="stock"], .aip [data-state="complete"] { --aip-state: #218655; }

@@ -1,4 +1,5 @@
 from functools import wraps
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
@@ -54,7 +55,8 @@ from .services.inventory import (
     inventory_totals,
     source_overview,
 )
-from .services.jobs import allocate_job, job_outputs, reconcile_jobs, update_progress
+from .services.job_assignments import annotate_assignments
+from .services.jobs import allocate_job, job_outputs, reconcile_jobs, unallocate_job
 from .services.planning import create_plan
 from .services.planning import refresh_plan as refresh_production_plan
 from .services.presentation import plan_views
@@ -512,9 +514,12 @@ def connect_corporation(request):
 
 @planner_access
 def jobs(request):
-    qs = IndustryJob.objects.filter(
-        user=request.user, source__in=authorized_sources(request.user)
-    ).select_related("source", "allocation__step__plan")
+    reconcile_jobs(request.user)
+    qs = (
+        IndustryJob.objects.filter(user=request.user, source__in=authorized_sources(request.user))
+        .select_related("source", "allocation__step__plan")
+        .order_by("-start_date", "-job_id")
+    )
     status = request.GET.get("status", "")
     if status:
         qs = qs.filter(status=status)
@@ -537,6 +542,7 @@ def jobs(request):
             or str(job.product_type_id or job.blueprint_type_id)
         )
         job.installer_name = installers.get(job.installer_id) or str(job.installer_id)
+    annotate_assignments(request.user, list(jobs_page))
     return page(
         request,
         "jobs",
@@ -545,6 +551,35 @@ def jobs(request):
         statuses=["active", "paused", "ready", "delivered", "cancelled", "reverted"],
         **source_overview(request.user),
     )
+
+
+@planner_access
+@require_POST
+def assign_job(request, pk):
+    job = get_object_or_404(
+        IndustryJob, pk=pk, user=request.user, source__in=authorized_sources(request.user)
+    )
+    target = request.POST.get("step", "")
+    if target == "unassigned":
+        unallocate_job(request.user, job.pk)
+        messages.success(
+            request, "Job unassigned. Automatic matching is disabled until you assign it again."
+        )
+    elif target.isdecimal():
+        step = get_object_or_404(PlanStep, pk=target, plan__user=request.user, plan__archived=False)
+        try:
+            allocate_job(request.user, job.pk, step.pk, reassign=True)
+            messages.success(
+                request, f"Job assigned to plan #{step.plan_id}, step {step.position}."
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+    else:
+        messages.error(request, "Choose a plan or select Unassigned.")
+    query = urlencode(
+        {"status": request.POST.get("status", ""), "page": request.POST.get("page", "1")}
+    )
+    return redirect(reverse("aa_industry_planner:jobs") + "?" + query)
 
 
 @planner_access
@@ -571,9 +606,7 @@ def link_job(request, pk):
 def unlink_job(request, pk):
     allocation = get_object_or_404(JobAllocation, pk=pk, step__plan__user=request.user)
     plan_id = allocation.step.plan_id
-    IndustryJob.objects.filter(pk=allocation.job_id).update(auto_link_disabled=True)
-    allocation.delete()
-    update_progress(request.user)
+    unallocate_job(request.user, allocation.job_id)
     return redirect("aa_industry_planner:plan", pk=plan_id)
 
 

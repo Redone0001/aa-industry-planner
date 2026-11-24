@@ -1,9 +1,9 @@
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 
-from aa_industry_planner.models import ACTIVITY_IDS, IndustryJob, JobAllocation, PlanStep
+from aa_industry_planner.models import JOB_ACTIVITIES, IndustryJob, JobAllocation, PlanStep
 
 from .inventory import authorized_sources
 
@@ -11,7 +11,7 @@ from .inventory import authorized_sources
 def job_output(job, products=None):
     from eve_sde.models import BlueprintActivityProduct
 
-    activity = {v: k for k, v in ACTIVITY_IDS.items()}.get(job.activity_id)
+    activity = JOB_ACTIVITIES.get(job.activity_id)
     if not activity or not job.product_type_id:
         return 0
     if products is None:
@@ -56,14 +56,14 @@ def compatible(job, step):
         job.user_id == step.plan.user_id
         and job.product_type_id == step.item_type_id
         and job.blueprint_type_id == step.blueprint_type_id
-        and job.activity_id == ACTIVITY_IDS[step.activity]
+        and JOB_ACTIVITIES.get(job.activity_id) == step.activity
         and (expected_facility is None or job.facility_id == expected_facility)
         and job.status not in {"cancelled", "reverted"}
     )
 
 
 @transaction.atomic
-def allocate_job(user, job_id, step_id, *, refresh_progress=True):
+def allocate_job(user, job_id, step_id, *, refresh_progress=True, reassign=False):
     job = IndustryJob.objects.select_for_update().get(
         pk=job_id, user=user, source__in=authorized_sources(user)
     )
@@ -74,7 +74,10 @@ def allocate_job(user, job_id, step_id, *, refresh_progress=True):
     )
     if not compatible(job, step):
         raise ValueError("Job product, blueprint, activity and facility must match the plan step.")
-    if JobAllocation.objects.filter(job=job).exclude(step=step).exists():
+    previous_step_id = (
+        JobAllocation.objects.filter(job=job).values_list("step_id", flat=True).first()
+    )
+    if previous_step_id and previous_step_id != step.pk and not reassign:
         raise ValueError("This job is already assigned to another step.")
     assigned = (
         step.allocations.exclude(job=job)
@@ -90,12 +93,23 @@ def allocate_job(user, job_id, step_id, *, refresh_progress=True):
     if job.auto_link_disabled:
         IndustryJob.objects.filter(pk=job.pk).update(auto_link_disabled=False)
     if refresh_progress:
-        update_progress(user)
+        update_progress(user, extra_step_ids=[previous_step_id] if previous_step_id else ())
 
 
-def update_progress(user):
+@transaction.atomic
+def unallocate_job(user, job_id):
+    job = IndustryJob.objects.select_for_update().get(pk=job_id, user=user)
+    previous = list(JobAllocation.objects.filter(job=job).values_list("step_id", flat=True))
+    JobAllocation.objects.filter(job=job).delete()
+    IndustryJob.objects.filter(pk=job.pk).update(auto_link_disabled=True)
+    update_progress(user, extra_step_ids=previous)
+
+
+def update_progress(user, *, extra_step_ids=()):
     sources = authorized_sources(user)
-    steps = list(PlanStep.objects.filter(plan__user=user, plan__archived=False))
+    steps = list(
+        PlanStep.objects.filter(Q(plan__archived=False) | Q(pk__in=extra_step_ids), plan__user=user)
+    )
     allocations = list(
         JobAllocation.objects.filter(step__in=steps)
         .select_related("job")

@@ -21,6 +21,7 @@ urlpatterns = [
     path("connect/character/", views.connect_character, name="connect_character"),
     path("connect/corporation/", views.connect_corporation, name="connect_corporation"),
     path("jobs/", views.jobs, name="jobs"),
+    path("jobs/<int:pk>/assign/", views.assign_job, name="assign_job"),
     path("watches/", views.watches, name="watches"),
     path("watches/<int:pk>/plan/", views.replenish, name="replenish"),
     path("configuration/", views.configuration, name="configuration"),

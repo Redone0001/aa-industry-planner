@@ -19,7 +19,8 @@ class Activity(models.TextChoices):
     REACTION = "reaction", _("Reactions")
 
 
-ACTIVITY_IDS = {"manufacturing": 1, "reaction": 11}
+# ESI reports reaction jobs as 9 or 11; both use the SDE's reaction recipes.
+JOB_ACTIVITIES = {1: "manufacturing", 9: "reaction", 11: "reaction"}
 
 
 def multiplier(default="1"):
