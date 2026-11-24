@@ -163,6 +163,15 @@ def calculate(
                 system=str(facility.solar_system.name),
                 index=index.cost_index if index else None,
                 index_recorded_at=index.recorded_at.isoformat() if index else None,
+                index_retrieved_at=index.retrieved_at.isoformat()
+                if index and index.retrieved_at
+                else None,
+                index_source_modified_at=index.source_modified_at.isoformat()
+                if index and index.source_modified_at
+                else None,
+                index_cache_expires_at=index.cache_expires_at.isoformat()
+                if index and index.cache_expires_at
+                else None,
                 material_multiplier=material,
                 time_multiplier=time * options["time_multiplier"],
                 cost_multiplier=cost,
@@ -171,12 +180,13 @@ def calculate(
             )
         return ProductionContext(**options)
 
-    prices = {
-        p.type_id: p.adjusted_price
+    price_rows = {
+        p.type_id: p
         for p in AdjustedPrice.objects.filter(
             updated_at__gte=timezone.now() - timezone.timedelta(days=2)
         )
     }
+    prices = {tid: p.adjusted_price for tid, p in price_rows.items()}
     result = plan(
         type_id,
         quantity,
@@ -215,6 +225,17 @@ def calculate(
     for node in snapshot["nodes"].values():
         node["input_inventory"] = []
         node["stock_locations"] = []
+        if node.get("cost_details"):
+            used = node["cost_details"]["materials"]
+            times = [price_rows[m["type_id"]].updated_at for m in used]
+            node["cost_details"]["prices_retrieved_at"] = min(times).isoformat() if times else None
+            for field in ["source_modified_at", "cache_expires_at"]:
+                dates = [getattr(price_rows[m["type_id"]], field) for m in used]
+                node["cost_details"][f"prices_{field}"] = (
+                    min(dates).isoformat() if dates and all(dates) else None
+                )
+            for material in used:
+                material["name"] = names.get(material["type_id"], str(material["type_id"]))
     for node in snapshot["nodes"].values():
         for requirement in node["inventory_requirements"]:
             allocations = [

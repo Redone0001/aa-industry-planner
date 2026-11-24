@@ -1,5 +1,7 @@
 """Use django-esi's token refresh, pagination, response cache and rate limiting."""
 
+from email.utils import parsedate_to_datetime
+
 from django.conf import settings
 from esi.openapi_clients import ESIClientProvider
 
@@ -52,6 +54,17 @@ def unpack(value):
     return value
 
 
+def public_cache_metadata(response):
+    result = {}
+    for header, field in [("Last-Modified", "source_modified_at"), ("Expires", "cache_expires_at")]:
+        try:
+            value = response.headers.get(header)
+            result[field] = parsedate_to_datetime(value) if value else None
+        except (TypeError, ValueError, OverflowError):
+            result[field] = None
+    return result
+
+
 class ESI:
     # These consumers need complete bodies, even when unchanged. ETag mode raises
     # HTTPNotModified for cached responses too. Disable conditional ETag reads;
@@ -93,7 +106,15 @@ class ESI:
         return unpack(operation.results(use_etag=False))
 
     def indices(self):
-        return unpack(esi.client.Industry.GetIndustrySystems().result(use_etag=False))
+        data, response = esi.client.Industry.GetIndustrySystems().result(
+            use_etag=False, return_response=True
+        )
+        self.indices_metadata = public_cache_metadata(response)
+        return unpack(data)
 
     def prices(self):
-        return unpack(esi.client.Market.GetMarketsPrices().result(use_etag=False))
+        data, response = esi.client.Market.GetMarketsPrices().result(
+            use_etag=False, return_response=True
+        )
+        self.prices_metadata = public_cache_metadata(response)
+        return unpack(data)

@@ -50,6 +50,27 @@ def percentage(value):
 
 
 @register.filter
+def exact_number(value):
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            return "Unavailable"
+        result = format(amount, ",f")
+        return result.rstrip("0").rstrip(".") if "." in result else result
+    except (InvalidOperation, ValueError, TypeError):
+        return "Unavailable"
+
+
+@register.filter
+def exact_percentage(value):
+    try:
+        amount = Decimal(str(value))
+        return f"{exact_number(amount * 100)}%" if amount.is_finite() else "Unavailable"
+    except (InvalidOperation, ValueError, TypeError):
+        return "Unavailable"
+
+
+@register.filter
 def duration(value):
     seconds = int(value or 0)
     days, seconds = divmod(seconds, 86400)

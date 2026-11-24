@@ -147,6 +147,9 @@ def refresh_indices(api=None, now=None):
     systems = set(Facility.objects.filter(active=True).values_list("solar_system_id", flat=True))
     sample = now.replace(minute=0, second=0, microsecond=0)
     rows = api.indices() if systems else []
+    metadata = getattr(api, "indices_metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
     with transaction.atomic():
         for system in rows:
             if system["solar_system_id"] not in systems:
@@ -156,13 +159,21 @@ def refresh_indices(api=None, now=None):
                     solar_system_id=system["solar_system_id"],
                     activity=index["activity"],
                     recorded_at=sample,
-                    defaults={"cost_index": Decimal(str(index["cost_index"]))},
+                    defaults={
+                        "cost_index": Decimal(str(index["cost_index"])),
+                        "retrieved_at": now,
+                        **metadata,
+                    },
                 )
         SystemCostIndex.objects.filter(recorded_at__lt=now - timezone.timedelta(days=90)).delete()
 
 
 def refresh_prices(api=None):
-    rows, now = (api or ESI()).prices(), timezone.now()
+    api = api or ESI()
+    rows, now = api.prices(), timezone.now()
+    metadata = getattr(api, "prices_metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
     prices = [
         AdjustedPrice(
             type_id=row["type_id"],
@@ -170,10 +181,14 @@ def refresh_prices(api=None):
             if row.get("adjusted_price") is not None
             else None,
             updated_at=now,
+            **metadata,
         )
         for row in rows
     ]
-    options = {"update_conflicts": True, "update_fields": ["adjusted_price", "updated_at"]}
+    options = {
+        "update_conflicts": True,
+        "update_fields": ["adjusted_price", "updated_at", "source_modified_at", "cache_expires_at"],
+    }
     if connection.features.supports_update_conflicts_with_target:
         options["unique_fields"] = ["type_id"]
     with transaction.atomic():

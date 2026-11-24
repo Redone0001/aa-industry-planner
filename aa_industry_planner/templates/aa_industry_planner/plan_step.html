@@ -1,0 +1,29 @@
+{% load industry %}
+<details class="aip-step {% if step.checked %}is-reviewed{% endif %}" data-step-collapse data-progress="{{ step.progress }}" data-state="{{ step.state }}" data-shared="{{ step.shared|yesno:'true,false' }}" data-review-item="{{ step.item_type_id }}" id="step-{{ step.position }}">
+  <summary class="aip-step-summary">
+    <span class="aip-step-number badge text-bg-secondary rounded-circle">{{ step.position }}</span>
+    <span class="aip-step-title"><strong class="aip-step-name">{{ step.item_type.name }}</strong> <span>× {{ step.output_quantity|quantity }} · {{ step.runs|quantity }} run{{ step.runs|pluralize }}</span></span>
+    <span class="aip-state-badge" data-state="{{ step.state }}">{{ step.state_label }}{% if step.needs_haul %} · haul inputs{% endif %}</span>
+    {% include 'aa_industry_planner/installation_fee.html' %}
+    <span class="aip-step-caret" aria-hidden="true">▸</span>
+  </summary>
+  <div class="aip-step-body">
+    <p>{{ step.get_activity_display }} · {{ step.details.batches|length }} planned job{{ step.details.batches|length|pluralize }} · {{ step.allocations.all|length }} linked job{{ step.allocations.all|length|pluralize }} · {{ step.details.estimated_seconds|duration }} total job time</p>
+    <p class="aip-coverage"><strong>{{ step.progress }}% completed</strong> · <strong>{{ step.ongoing_progress }}% ongoing</strong> · {{ step.completed_quantity|quantity }} completed + {{ step.ongoing_quantity|quantity }} ongoing / {{ step.output_quantity|quantity }} planned units</p>
+    {% include 'aa_industry_planner/checklist.html' with item_id=step.item_type_id item_name=step.item_type.name checked=step.checked %}
+    {% if step.dependency_positions %}<div class="aip-dependencies">Uses outputs from {% for p in step.dependency_positions %}<a href="#step-{{ p }}">Step {{ p }}</a> {% endfor %}</div>{% endif %}
+    <div class="aip-step-meta"><span><i class="fa-solid fa-location-dot"></i> {{ step.details.context.facility }}{% if step.details.context.system %} · {{ step.details.context.system }}{% endif %}</span><span>System index: {{ step.details.context.index|percentage }}</span></div>
+    <div class="aip-step-progress progress" role="progressbar" aria-label="Step {{ step.position }} completion" aria-valuenow="{{ step.progress }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar bg-success" style="width: {{ step.progress }}%"></div><div class="progress-bar aip-ongoing-bar" style="width: {{ step.ongoing_progress }}%" aria-hidden="true"></div></div>
+    {% for warning in step.details.warnings %}<small class="text-warning-emphasis">{{ warning }}</small>{% endfor %}
+    <h4 class="h6 mt-3">Materials, job batches & linked jobs</h4>
+    {% include 'aa_industry_planner/step_materials.html' %}
+    <p class="mt-3">Runs per job: {{ step.details.batches|join:', ' }}</p>
+    <p>{% if step.activity == "manufacturing" %}Blueprint #{{ step.blueprint_type_id }} · ME {{ step.details.context.me }} / TE {{ step.details.context.te }}{% else %}Reaction formula #{{ step.blueprint_type_id }}{% endif %}</p>
+    {% for allocation in step.allocations.all %}<div class="aip-job-link">Job #{{ allocation.job.job_id }} · {{ allocation.actual_output|quantity }} output units ({{ allocation.quantity|quantity }} credited to this plan) · {{ allocation.job.status }}{% if allocation.job.cost != None %} · Installed fee: {{ allocation.job.cost|compact_isk }}{% endif %}<form method="post" action="{% url 'aa_industry_planner:unlink_job' allocation.pk %}">{% csrf_token %}<button class="btn btn-link btn-sm">Unlink</button></form></div>{% empty %}<p class="text-body-secondary">No matching job has been linked.</p>{% endfor %}
+    {% if step.fee.breakdown %}<details class="aip-details"><summary>Installation fee calculation inputs</summary>
+      <p>EIV uses the recipe’s base materials and CCP adjusted prices, before ME or facility material bonuses.</p>
+      <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Base material</th><th>Units/run</th><th>Adjusted price (ISK)</th><th>EIV/run (ISK)</th></tr></thead><tbody>{% for material in step.fee.breakdown.materials %}<tr><td>{{ material.name }}</td><td>{{ material.quantity|quantity }}</td><td>{{ material.adjusted_price|exact_number }}</td><td>{{ material.value|exact_number }}</td></tr>{% endfor %}</tbody></table></div>
+      <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Runs/job</th><th>Jobs</th><th>EIV/job (ISK)</th><th>System/job (ISK)</th><th>Taxes/job (ISK)</th><th>Total/job (ISK)</th></tr></thead><tbody>{% for batch in step.fee.breakdown.batches %}<tr><td>{{ batch.runs|quantity }}</td><td>{{ batch.jobs|quantity }}</td><td>{{ batch.eiv|exact_number }}</td><td>{{ batch.system_fee|exact_number }}</td><td>{{ batch.tax_fee|exact_number }}</td><td>{{ batch.total|exact_number }}</td></tr>{% endfor %}</tbody></table></div>
+    </details>{% endif %}
+  </div>
+</details>

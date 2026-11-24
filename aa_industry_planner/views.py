@@ -59,7 +59,7 @@ from .services.job_assignments import annotate_assignments
 from .services.jobs import allocate_job, job_outputs, reconcile_jobs, unallocate_job
 from .services.planning import create_plan
 from .services.planning import refresh_plan as refresh_production_plan
-from .services.presentation import plan_views
+from .services.presentation import fee_presentation, plan_views
 from .services.readiness import annotate_steps, multibuy_text
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
@@ -195,6 +195,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     for step in steps:
         step.dependency_positions = dependencies[step.item_type_id]
         step.shared = graph_nodes.get(step.item_type_id, {}).get("shared", False)
+        step.fee = fee_presentation(step.details)
     visible_jobs = IndustryJob.objects.filter(
         user=request.user, source__in=authorized_sources(request.user), allocation__isnull=True
     ).exclude(status__in=["cancelled", "reverted"])

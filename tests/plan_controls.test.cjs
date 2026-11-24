@@ -24,7 +24,8 @@ function browser({failSave=false, failCopy=false}={}) {
       if(selector==='[data-checklist]')return[form];
       if(selector==='[data-copy-multibuy]')return buttons;
       if(selector.includes('data-review-item'))return[card];
-      return[checkbox,twin];
+      if(selector.includes('input[name'))return[checkbox,twin];
+      return[];
     }},
     FormData:class {constructor(){this.checked=checkbox.checked&&!checkbox.disabled;}},
     fetch:async (url,options)=>{requests.push({url,...options});return{ok:!failSave,json:async()=>({checked:options.body.checked})};},
@@ -87,6 +88,7 @@ function filteredBrowser() {
     step.classList={contains:()=>reviewed.has(step.id),toggle:(_,value)=>value?reviewed.add(step.id):reviewed.delete(step.id)};
     step.contains=()=>false;
     step.scrollIntoView=()=>{step.scrolled=true;};
+    step.matches=selector=>selector==='[data-step-collapse]';
   });
   const sequence={querySelectorAll:()=>steps,querySelector:selector=>({
     '[data-step-filter]':select,'[data-step-filter-count]':counter,'[data-step-filter-empty]':empty,
@@ -97,7 +99,7 @@ function filteredBrowser() {
   const checkbox={checked:false,closest:selector=>selector==='form'?form:checkbox};
   const location={origin:'https://example.test',pathname:'/industry/plans/1/',search:'',hash:'',href:'https://example.test/industry/plans/1/'};
   runInNewContext(source,{
-    document:{querySelector:()=>sequence,querySelectorAll:selector=>selector.includes('input[name')?[checkbox]:selector.includes('data-review-item')?[steps[3]]:[],addEventListener:(name,fn)=>{events[name]=fn;}},
+    document:{querySelector:()=>sequence,querySelectorAll:selector=>selector.includes('input[name')?[checkbox]:selector.includes('data-review-item')?[steps[3]]:[],addEventListener:(name,fn)=>{(events[name]??=[]).push(fn);}},
     window:{addEventListener:(name,fn)=>{windowEvents[name]=fn;}},
     location,URL,
     FormData:class{},fetch:async()=>({ok:true,json:async()=>({checked:checkbox.checked})}),
@@ -105,8 +107,8 @@ function filteredBrowser() {
   return {steps,select,counter,empty,controls,reset,checkbox,location,
     filter(value){select.value=value;select.change();},
     visible(){return steps.filter(step=>!step.hidden).map(step=>step.id);},
-    changeReminder:()=>events.change({target:checkbox}),
-    follow(hash){events.click({target:{closest:()=>({href:location.href+hash})}});},
+    changeReminder:()=>Promise.all(events.change.map(fn=>fn({target:checkbox}))),
+    follow(hash){events.click.forEach(fn=>fn({target:{closest:()=>({href:location.href+hash})}}));},
     hash(hash){location.hash=hash;windowEvents.hashchange();},
   };
 }
@@ -145,9 +147,33 @@ test('links and hash navigation reveal steps hidden by the current filter',()=>{
   ui.follow('#step-2');
   assert.equal(ui.select.value,'all');
   assert.equal(ui.steps[1].hidden,false);
+  assert.equal(ui.steps[1].open,true);
   ui.filter('checked');
   ui.hash('#step-1');
   assert.equal(ui.select.value,'all');
   assert.equal(ui.steps[0].hidden,false);
   assert.equal(ui.steps[0].scrolled,true);
+});
+
+test('fee details support focus and Escape without expanding the production step',()=>{
+  const events={}, triggerEvents={}, boxEvents={}, classes=new Set();
+  const trigger={addEventListener:(name,fn)=>{triggerEvents[name]=fn;},getBoundingClientRect:()=>({left:850,right:900,bottom:600})};
+  const popup={style:{},offsetWidth:500,offsetHeight:600};
+  const box={querySelector:selector=>selector==='button'?trigger:popup,addEventListener:(name,fn)=>{boxEvents[name]=fn;},contains:target=>target===trigger,classList:{add:value=>classes.add(value),remove:value=>classes.delete(value)}};
+  runInNewContext(source,{
+    document:{querySelector:()=>null,querySelectorAll:selector=>selector==='[data-fee]'?[box]:[],addEventListener:(name,fn)=>{(events[name]??=[]).push(fn);}},
+    window:{innerWidth:1000,innerHeight:800,addEventListener(){}},
+  });
+  let prevented=0,stopped=0;
+  triggerEvents.click({preventDefault(){prevented++;},stopPropagation(){stopped++;}});
+  assert.equal(prevented,1); assert.equal(stopped,1);
+  assert.equal(popup.style.left,'350px'); assert.equal(popup.style.top,'188px');
+  boxEvents.keydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+  assert.equal(classes.has('is-fee-dismissed'),true);
+  triggerEvents.focus();
+  assert.equal(classes.has('is-fee-dismissed'),false);
+  events.click.forEach(fn=>fn({target:{}}));
+  assert.equal(classes.has('is-fee-dismissed'),true);
+  boxEvents.mouseenter();
+  assert.equal(classes.has('is-fee-dismissed'),false);
 });

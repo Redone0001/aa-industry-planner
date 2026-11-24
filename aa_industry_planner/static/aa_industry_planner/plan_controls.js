@@ -27,6 +27,7 @@
     const revealStep = hash => {
       const step = steps.find(item => `#${item.id}` === hash);
       if (step?.hidden) { select.value = "all"; applyStepFilter(); }
+      if (step?.matches("[data-step-collapse]")) step.open = true;
       return step;
     };
     select.addEventListener("change", applyStepFilter);
@@ -48,6 +49,35 @@
     applyStepFilter();
     revealStep(location.hash);
   }
+  const feeBoxes = [...document.querySelectorAll("[data-fee]")];
+  const positionFee = box => {
+    const trigger = box.querySelector("button");
+    const popup = box.querySelector(".aip-fee-popup");
+    const rect = trigger.getBoundingClientRect();
+    const left = rect.left >= popup.offsetWidth + 12 ? rect.left - popup.offsetWidth : Math.max(12, Math.min(rect.right - popup.offsetWidth, window.innerWidth - popup.offsetWidth - 12));
+    popup.style.left = `${left}px`;
+    popup.style.right = "auto";
+    popup.style.top = `${Math.max(80, Math.min(rect.bottom, window.innerHeight - popup.offsetHeight - 12))}px`;
+  };
+  feeBoxes.forEach(box => {
+    const trigger = box.querySelector("button");
+    const show = () => { box.classList.remove("is-fee-dismissed"); positionFee(box); };
+    box.addEventListener("mouseenter", show);
+    box.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); });
+    trigger.addEventListener("focus", show);
+    trigger.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); show(); });
+    box.addEventListener("keydown", event => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); box.classList.add("is-fee-dismissed"); }
+    });
+  });
+  if (feeBoxes.length) {
+    const reposition = () => feeBoxes.forEach(box => { if (box.matches(":hover, :focus-within")) positionFee(box); });
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, {passive: true, capture: true});
+  }
+  document.addEventListener("click", event => {
+    document.querySelectorAll("[data-fee]").forEach(box => { if (!box.contains(event.target)) box.classList.add("is-fee-dismissed"); });
+  });
   document.addEventListener("change", async event => {
     const checkbox = event.target.closest('[data-checklist] input[name="checked"]');
     if (!checkbox) return;

@@ -289,8 +289,16 @@ class ActivityStorageLocation(models.Model):
 class SystemCostIndex(models.Model):
     solar_system = models.ForeignKey("eve_sde.SolarSystem", on_delete=models.CASCADE)
     activity = models.CharField(max_length=40)
-    cost_index = rate()
+    cost_index = models.DecimalField(
+        max_digits=24,
+        decimal_places=20,
+        default=Decimal("0"),
+        validators=[MinValueValidator(0), MaxValueValidator(ONE)],
+    )
     recorded_at = models.DateTimeField(default=timezone.now)
+    retrieved_at = models.DateTimeField(null=True, blank=True)
+    source_modified_at = models.DateTimeField(null=True, blank=True)
+    cache_expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-recorded_at"]
@@ -306,8 +314,10 @@ class AdjustedPrice(models.Model):
     """Dynamic ESI prices; static type metadata remains exclusively in eve_sde."""
 
     type_id = models.PositiveBigIntegerField(primary_key=True)
-    adjusted_price = models.DecimalField(max_digits=28, decimal_places=4, null=True)
+    adjusted_price = models.DecimalField(max_digits=38, decimal_places=16, null=True)
     updated_at = models.DateTimeField(default=timezone.now)
+    source_modified_at = models.DateTimeField(null=True, blank=True)
+    cache_expires_at = models.DateTimeField(null=True, blank=True)
 
 
 class UserPreferences(models.Model):

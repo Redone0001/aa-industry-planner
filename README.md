@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.15 fixes ESI reaction activity 9 matching, adds assignment/reassignment controls and unmatched-job explanations in All jobs, and orders that list by newest start time first. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.16 adds compact expandable production steps and an installation-fee audit showing EIV, exact rates, per-job rounding and CCP cache timestamps. Public prices and indices retain more decimal precision. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.16"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.16"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.16"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.15 adds no migrations or dependencies. Migration `0007` from v0.1.13 remains required for reminders, ongoing quantities and explicit job unlink preferences; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.16 requires migration `0008` for higher-precision prices/indices and public-data cache timestamps. It adds no dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.15" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.16" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -137,6 +137,10 @@ refresh_public_data.delay()
 6. Existing facilities without a hull retain their legacy manual multipliers. To convert one, select its hull and declare its complete module/rig fit; the old manual multipliers then stop applying. Rates are fractions: `0.01` = 1%. Multipliers are remaining fractions: `0.98` = 2% reduction. The declared fit is not verified against the deployed structure's current fuel, fitting, or access rights.
 7. Users choose default manufacturing and reaction locations in **Configuration**, and can override them for the product families used by industry rigs. Leave the family empty for a catch-all. Specific families take precedence over broad Ships assignments; existing exact SDE group overrides are retained as legacy entries and take precedence until removed. Changing settings affects newly calculated plans; use **Refresh plan** to update an existing calculation.
 
+The documented Celery Beat schedule retrieves public indices and adjusted prices **hourly, at minute 7** (`refresh_public_data`). It must be installed in the AA deployment; the app does not silently replace its Beat schedule. Django-ESI respects CCP’s HTTP cache, so a new retrieval may contain the same older response. Index records keep the hourly history bucket separately from the actual retrieval time, CCP Last-Modified and Expires; adjusted prices keep the corresponding source timestamps too. Fee tooltips show the timestamps saved with the calculation. Refreshing a plan uses the latest locally imported data; it does not bypass CCP cache.
+
+The planner now retains 20 fractional digits for indices and 16 for adjusted prices. This avoids adding database rounding to the values ESI publishes, but cannot recover precision or newer values that the API omits. [ESI issue #1411](https://github.com/esi/esi-issues/issues/1411) documents index precision limitations. Differences between an installed job and a current estimate can also reflect different calculation times.
+
 SCC defaults to 4% for the two supported planning activities and is editable per service. Missing/stale prices (older than two days), unavailable system indices (older than six hours), and missing facilities are reported explicitly; an unknown installation estimate is never presented as zero.
 
 See [the industry bonus research and rules](docs/industry-bonuses.md) for primary sources, formulas, coverage, examples and catalog refresh instructions. The bundled rules use CCP release `20261120T165826Z` (14 hulls, 9 service modules, 125 industry rigs). Legacy Outpost Conversion Rigs require manual configuration. Blueprint and character bonuses apply separately from the calculated facility multipliers.
@@ -174,6 +178,10 @@ Saved calculations retain their original snapshot. Old calculations that used po
 The graph, tree and production sequence share availability colours: **solid green** for stock/completed output, **blue** for ready to craft, **purple** for active/paused jobs, **amber** for buy/import and **grey** for missing inputs. A **dashed border** identifies a shared input while retaining its availability colour. Activity names still distinguish manufacturing and reactions.
 
 Readiness uses the latest authorized, included inventory at each step’s saved production/storage locations, with a visible online production service. It requires all remaining input materials, accounts for completed runs and per-job material rounding, and allocates shared stock once in production order. Storage supplies are marked for hauling. Running or undelivered job output is never assumed to be available stock; downstream steps become ready after delivery and the next asset import. Readiness is a view-time check, not a reservation or live EVE access/skills check. Historic plans without saved location scopes need a refresh.
+
+Production steps start as compact rows: **item × planned output · runs**, with the availability colour, shared border and installation estimate. Click the row (or press Enter/Space) to reveal time, progress, reminders, location, materials, batches and linked jobs. Graph/tree/dependency links open the target step automatically, even when a filter hid it.
+
+Hover or focus the installation estimate to see its saved calculation: EIV per run/total, full published system index, cost multiplier, facility tax, SCC, Alpha tax, rounded components and total. Clicking the fee focuses the breakdown without opening the step; Escape dismisses it. **Installation fee calculation inputs** inside the expanded step lists the exact adjusted prices, base quantities and grouped per-job calculations. Existing snapshots retain their saved fees and prompt for **Refresh plan** to capture the new audit trail.
 
 **Production sequence → Show steps** filters the numbered steps: **All steps**, **To complete** (job completion below 100%, including ongoing jobs), **Inputs ready** (blue ready-to-craft steps), or **Checked reminders** (the saved Reviewed checkboxes, independent of job completion). The visible count and empty state update immediately; saving a checkbox updates the checked filter as well. Filters retain the original step numbers and production order. Following a graph, tree or dependency link to a hidden step switches back to All steps so the target is visible.
 

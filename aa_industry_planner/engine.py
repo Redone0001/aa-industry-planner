@@ -1,6 +1,6 @@
 """Deterministic production DAG. No Django, network or database side effects."""
 
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from math import ceil
@@ -31,6 +31,9 @@ class ProductionContext:
     system: str = ""
     index: Decimal | None = None
     index_recorded_at: str | None = None
+    index_retrieved_at: str | None = None
+    index_source_modified_at: str | None = None
+    index_cache_expires_at: str | None = None
     material_multiplier: Decimal = D(1)
     time_multiplier: Decimal = D(1)
     cost_multiplier: Decimal = D(1)
@@ -139,6 +142,7 @@ class Node:
     recipe: Recipe | None = None
     context: ProductionContext | None = None
     estimated_job_cost: Decimal | None = None
+    cost_details: dict | None = None
     estimated_seconds: int = 0
     warnings: list[str] = field(default_factory=list)
     inventory_requirements: list[dict] = field(default_factory=list)
@@ -154,6 +158,47 @@ def material_quantity(base, runs, efficiency):
     # EVE rounds to two decimals before ceiling and requires at least one unit/run.
     adjusted = (D(base) * runs * efficiency).quantize(D("0.01"), rounding=ROUND_HALF_UP)
     return max(runs, int(adjusted.to_integral_value(rounding=ROUND_CEILING)))
+
+
+def installation_cost(recipe, batches, ctx, prices):
+    """Keep the estimate and its audit trail on the same calculation path."""
+    materials = [
+        dict(type_id=t, quantity=base, adjusted_price=prices[t], value=D(base) * prices[t])
+        for t, base in recipe.materials.items()
+    ]
+    eiv = sum((m["value"] for m in materials), D(0))
+    groups = []
+    for runs, jobs in Counter(batches).items():
+        value = eiv * runs
+        system = (value * ctx.index * ctx.cost_multiplier).to_integral_value(rounding=ROUND_FLOOR)
+        taxes = (value * (ctx.facility_tax + ctx.scc_surcharge + ctx.alpha_tax)).to_integral_value(
+            rounding=ROUND_FLOOR
+        )
+        groups.append(
+            dict(
+                runs=runs,
+                jobs=jobs,
+                eiv=value,
+                system_fee=system,
+                tax_fee=taxes,
+                total=system + taxes,
+            )
+        )
+    total_eiv = eiv * sum(batches)
+    system_fee = sum((g["system_fee"] * g["jobs"] for g in groups), D(0))
+    tax_fee = sum((g["tax_fee"] * g["jobs"] for g in groups), D(0))
+    return dict(
+        materials=materials,
+        eiv_per_run=eiv,
+        eiv=total_eiv,
+        batches=groups,
+        system_fee=system_fee,
+        tax_fee=tax_fee,
+        total=system_fee + tax_fee,
+        facility_tax=total_eiv * ctx.facility_tax,
+        scc=total_eiv * ctx.scc_surcharge,
+        alpha=total_eiv * ctx.alpha_tax,
+    )
 
 
 def plan(
@@ -287,17 +332,6 @@ def plan(
                 "Adjusted material prices are missing; installation cost cannot be estimated."
             )
         if ctx.index is not None and not missing_prices:
-            eiv = sum((D(base) * prices[t] for t, base in recipe.materials.items()), D(0))
-            node.estimated_job_cost = sum(
-                (
-                    (eiv * size * ctx.index * ctx.cost_multiplier).to_integral_value(
-                        rounding=ROUND_FLOOR
-                    )
-                    + (
-                        eiv * size * (ctx.facility_tax + ctx.scc_surcharge + ctx.alpha_tax)
-                    ).to_integral_value(rounding=ROUND_FLOOR)
-                    for size in node.batches
-                ),
-                D(0),
-            )
+            node.cost_details = installation_cost(recipe, node.batches, ctx, prices)
+            node.estimated_job_cost = node.cost_details["total"]
     return Result(nodes=nodes, order=list(reversed(order)))

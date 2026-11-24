@@ -1,0 +1,32 @@
+{% load industry %}
+<span class="aip-fee" data-fee>
+  <button class="aip-fee-trigger" type="button" aria-label="Installation fee calculation for {{ step.item_type.name }}" aria-describedby="fee-{{ step.pk }}">{{ step.details.estimated_job_cost|compact_isk }} <span aria-hidden="true">ⓘ</span></button>
+  <span class="aip-fee-popup" role="tooltip" id="fee-{{ step.pk }}">
+    <strong>Installation fee calculation</strong>
+    {% if step.fee.breakdown %}
+      <span class="aip-fee-formula">EIV × (system index × cost multiplier + facility tax + SCC + Alpha)</span>
+      <span class="aip-fee-line"><span>EIV per run</span><strong>{{ step.fee.breakdown.eiv_per_run|exact_number }} ISK</strong></span>
+      <span class="aip-fee-line"><span>Total EIV · {{ step.runs|quantity }} runs</span><strong>{{ step.fee.breakdown.eiv|exact_number }} ISK</strong></span>
+      <span class="aip-fee-line"><span>System index</span><strong>{{ step.details.context.index|exact_percentage }}</strong></span>
+      <span class="aip-fee-line"><span>Facility cost multiplier</span><strong>× {{ step.details.context.cost_multiplier|exact_number }}</strong></span>
+      <span class="aip-fee-line"><span>System fee (rounded)</span><strong>{{ step.fee.breakdown.system_fee|exact_number }} ISK</strong></span>
+      <span class="aip-fee-line"><span>Facility tax · {{ step.details.context.facility_tax|exact_percentage }}</span><strong>{{ step.fee.breakdown.facility_tax|exact_number }} ISK</strong></span>
+      <span class="aip-fee-line"><span>SCC · {{ step.details.context.scc_surcharge|exact_percentage }}</span><strong>{{ step.fee.breakdown.scc|exact_number }} ISK</strong></span>
+      <span class="aip-fee-line"><span>Alpha · {{ step.details.context.alpha_tax|exact_percentage }}</span><strong>{{ step.fee.breakdown.alpha|exact_number }} ISK</strong></span>
+      <span class="aip-fee-line"><span>Combined taxes (rounded)</span><strong>{{ step.fee.breakdown.tax_fee|exact_number }} ISK</strong></span>
+      <span class="aip-fee-line aip-fee-total"><span>Total installation fee</span><strong>{{ step.fee.breakdown.total|exact_number }} ISK</strong></span>
+      <span class="aip-fee-note">System fee and combined taxes are each rounded down to whole ISK per job, then summed. Individual tax amounts above are before that rounding.</span>
+      <span class="aip-fee-note">Index retrieved: {% if step.fee.index_retrieved_at %}{{ step.fee.index_retrieved_at|date:'d M Y H:i:s T' }}{% else %}Unknown{% endif %}. Hourly sample: {{ step.fee.index_sample_at|date:'d M Y H:i T'|default:'Unknown' }}.</span>
+      <span class="aip-fee-note">CCP index last modified: {{ step.fee.index_source_modified_at|date:'d M Y H:i:s T'|default:'Unknown' }}. Cache expires: {{ step.fee.index_cache_expires_at|date:'d M Y H:i:s T'|default:'Unknown' }}.</span>
+      <span class="aip-fee-note">Prices retrieved (oldest input): {{ step.fee.prices_retrieved_at|date:'d M Y H:i:s T'|default:'Unknown' }}.</span>
+      <span class="aip-fee-note">CCP prices last modified: {{ step.fee.prices_source_modified_at|date:'d M Y H:i:s T'|default:'Unknown' }}. Cache expires: {{ step.fee.prices_cache_expires_at|date:'d M Y H:i:s T'|default:'Unknown' }}.</span>
+      <span class="aip-fee-note">This estimate uses the published ESI index; in-game values can differ.</span>
+    {% elif step.details.estimated_job_cost != None %}
+      <span class="aip-fee-line"><span>Saved fee</span><strong>{{ step.details.estimated_job_cost|exact_number }} ISK</strong></span>
+      <span class="aip-fee-note">Refresh this plan to capture its calculation inputs and data timestamps.</span>
+    {% else %}
+      <span class="aip-fee-note">The fee is unavailable. Expand the step for missing index, adjusted-price or facility warnings.</span>
+    {% endif %}
+    <span class="aip-fee-note">Plan calculated: {{ plan.calculated_at|date:'d M Y H:i:s T' }}. Public data is fetched hourly when scheduled; ESI cache applies. Refresh plan to use newer data.</span>
+  </span>
+</span>

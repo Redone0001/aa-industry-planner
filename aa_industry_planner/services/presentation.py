@@ -2,11 +2,35 @@
 
 from collections import defaultdict, deque
 
+from django.utils.dateparse import parse_datetime
+
 NODE_WIDTH = 240
 NODE_HEIGHT = 136
 ROW_GAP = 26
 COLUMN_GAP = 92
 PADDING = 32
+
+
+def fee_presentation(details):
+    context = details.get("context") or {}
+    cost = details.get("cost_details") or {}
+
+    def date(value):
+        try:
+            return parse_datetime(value) if value else None
+        except (TypeError, ValueError):
+            return None
+
+    return dict(
+        breakdown=cost,
+        index_retrieved_at=date(context.get("index_retrieved_at")),
+        index_source_modified_at=date(context.get("index_source_modified_at")),
+        index_cache_expires_at=date(context.get("index_cache_expires_at")),
+        index_sample_at=date(context.get("index_recorded_at")),
+        prices_retrieved_at=date(cost.get("prices_retrieved_at")),
+        prices_source_modified_at=date(cost.get("prices_source_modified_at")),
+        prices_cache_expires_at=date(cost.get("prices_cache_expires_at")),
+    )
 
 
 def plan_views(snapshot, steps, checked=()):
