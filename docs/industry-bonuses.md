@@ -171,7 +171,7 @@ The Sotiyo nullsec material example is `0.99 × (1 − 0.024 × 2.1) = 0.940104`
 - `aa_industry_planner/industry.py` is a pure calculation/validation module, using decimal arithmetic and the bundled catalog.
 - `Facility.structure_type` enables the fitted mode. `FacilityModule` and `FacilityFittedRig` store the declared fit at structure scope. Rigs are not duplicated per service.
 - Fitted service modules maintain stable manufacturing/reaction `FacilityService` records for assignments and taxes. Removing/offlining the last compatible module marks that activity unavailable. The planner also checks the exact product against the online modules.
-- New calculations snapshot the applied multipliers, hull/module/rig IDs, security band, infrastructure declaration, and catalog release. Existing saved plan snapshots retain their previous assumptions.
+- New calculations snapshot the applied multipliers, hull/module/rig IDs, security band, infrastructure declaration, and catalog release. Existing saved plan snapshots retain their previous assumptions until the owner explicitly refreshes the plan.
 - Facilities without a hull remain in legacy manual mode. Their manual services and rig multipliers are preserved. After declaring a hull, enter the complete fit; legacy multipliers are ignored to prevent double-counting.
 - The migration uses the app's existing shared SDE dependency, without requiring the SDE 2.x-only migrations. The calculator does not depend on Dogma models being available in `django-eveonline-sde` 0.2.x.
 - Admin formsets validate the submitted replacement fit, including deletions, before saving: fitting hull/type restrictions, service slots, three rig slots, calibration, duplicate rig groups including tech/faction variants, rig size, highsec restrictions, and the supercapital declaration. This is not a complete ship fitting simulator: unrecorded combat modules, total remaining CPU/powergrid, fuel, and actual in-game online state are not checked.
@@ -198,3 +198,9 @@ Review table/version/hash changes, altered target filters, new fitting types, ne
 Tests include current primary-data vectors for hulls, security classes, standard engineering rigs, reactors, Thukker component subtypes, research/invention separation, service permissions, and invalid fittings. All 125 shipped rigs are evaluated in a compatible fit. Database tests cover the real admin POST, invalid-fit rejection, planner integration, saved fit provenance, offline/delete transitions, tax preservation, and monitor rendering.
 
 A live EVE client comparison remains a deployment acceptance step; no authenticated game client or production AA instance was used for this research. Compare at least an unrigged hull, one matching and nonmatching product, reactor subtypes, the lowsec Thukker case, and material quantities near rounding boundaries.
+
+## Planner controls added in 0.1.5
+
+New location assignments use these target-filter families instead of individual SDE item groups. An empty family remains the activity catch-all. Specific group families take precedence over broad category families such as Ships. Legacy exact-group assignments remain in force until removed.
+
+Manufacturing plans default to blueprint ME 10 / TE 20, with per-plan defaults and nullable per-blueprint overrides; reactions use neither. ME/TE no longer belongs to ItemPolicy. The upgrade preserves historical saved ME/TE as per-plan overrides. An explicit refresh recalculates current facilities and configuration without changing the plan ID; it retains compatible job links and reports released incompatible links.

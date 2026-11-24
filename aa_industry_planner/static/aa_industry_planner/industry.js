@@ -136,6 +136,23 @@
       }
     });
   });
+  app.querySelectorAll("[data-industry-assignment]").forEach(form => {
+    const activity = form.querySelector("[data-assignment-activity]");
+    const selects = [...form.querySelectorAll("[data-assignment-family], [data-assignment-service]")];
+    const update = () => selects.forEach(select => {
+      [...select.options].forEach(option => {
+        const mismatch = Boolean(activity.value && option.dataset.activity && option.dataset.activity !== activity.value);
+        option.hidden = mismatch;
+        option.disabled = mismatch;
+      });
+      if (select.selectedOptions[0]?.disabled) select.value = "";
+      select.querySelectorAll("optgroup").forEach(group => {
+        group.hidden = [...group.children].every(option => option.hidden);
+      });
+    });
+    activity.addEventListener("change", update);
+    update();
+  });
   app.querySelectorAll("[data-expand-tree]").forEach(button => {
     let expanded = true;
     button.textContent = "Collapse all";

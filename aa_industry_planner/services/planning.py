@@ -6,12 +6,19 @@ from django.utils import timezone
 from eve_sde.models import BlueprintActivityProduct, ItemType
 
 from aa_industry_planner.engine import PlanningError, ProductionContext, Recipe, plan
-from aa_industry_planner.industry import FitError, catalog
+from aa_industry_planner.industry import (
+    BONUS_SCOPE_OFFSET,
+    FitError,
+    catalog,
+    matching_bonus_families,
+)
 from aa_industry_planner.models import (
     AdjustedPrice,
     Facility,
     FacilityAssignment,
     ItemPolicy,
+    JobAllocation,
+    PlanBlueprintOverride,
     PlanStep,
     ProductionPlan,
     SystemCostIndex,
@@ -79,7 +86,28 @@ def json_safe(value):
     return value
 
 
-def calculate(user, type_id, quantity, use_inventory=True):
+def validate_blueprints(default_me, default_te, overrides):
+    if default_me is None or default_te is None:
+        raise PlanningError("Set the default blueprint ME and TE for this plan.")
+    for me, te in [(default_me, default_te), *overrides.values()]:
+        if me is not None and (not isinstance(me, int) or not 0 <= me <= 10):
+            raise PlanningError("Blueprint ME must be between 0 and 10.")
+        if te is not None and (not isinstance(te, int) or not 0 <= te <= 20):
+            raise PlanningError("Blueprint TE must be between 0 and 20.")
+
+
+def calculate(
+    user,
+    type_id,
+    quantity,
+    use_inventory=True,
+    *,
+    default_me=10,
+    default_te=20,
+    blueprint_overrides=None,
+):
+    blueprint_overrides = blueprint_overrides or {}
+    validate_blueprints(default_me, default_te, blueprint_overrides)
     policies = {p.item_type_id: p for p in ItemPolicy.objects.filter(user=user)}
     preferences, _ = UserPreferences.objects.get_or_create(user=user)
     assignments = {
@@ -95,10 +123,10 @@ def calculate(user, type_id, quantity, use_inventory=True):
     group_cache = {}
 
     def context_for(item_id, recipe):
-        policy = policies.get(item_id)
+        me, te = blueprint_overrides.get(item_id, (None, None))
         options = {
-            "me": policy.material_efficiency if policy else 0,
-            "te": policy.time_efficiency if policy else 0,
+            "me": (default_me if me is None else me) if recipe.activity == "manufacturing" else 0,
+            "te": (default_te if te is None else te) if recipe.activity == "manufacturing" else 0,
             "reaction_runs": preferences.reaction_runs,
             "reaction_hours": preferences.reaction_hours,
             "alpha_tax": preferences.alpha_clone_tax,
@@ -109,9 +137,13 @@ def calculate(user, type_id, quantity, use_inventory=True):
                 "group_id", "group__category_id"
             ).get(pk=item_id)
         group_id, category_id = group_cache[item_id]
-        service = assignments.get((recipe.activity, group_id)) or assignments.get(
-            (recipe.activity, 0)
-        )
+        service = assignments.get((recipe.activity, group_id))
+        if service is None:
+            for family_id in matching_bonus_families(recipe.activity, group_id, category_id):
+                service = assignments.get((recipe.activity, BONUS_SCOPE_OFFSET + family_id))
+                if service is not None:
+                    break
+        service = service or assignments.get((recipe.activity, 0))
         if service:
             facility = service.facility
             index = SystemCostIndex.objects.filter(
@@ -177,13 +209,23 @@ def calculate(user, type_id, quantity, use_inventory=True):
         prices,
     )
     type_ids = list(result.nodes)
-    names = {t.pk: str(t.name) for t in ItemType.objects.filter(pk__in=type_ids)}
+    names = dict(ItemType.objects.filter(pk__in=type_ids).values_list("id", "name"))
     snapshot = {
         "product_id": type_id,
         "quantity": quantity,
         "calculated_at": timezone.now().isoformat(),
         "inventory_used": use_inventory,
-        "inventory_scope": "All enabled included sources; this is a plan snapshot, not a stock reservation.",
+        "inventory_scope": "All enabled included sources; this is a plan snapshot, not a stock reservation."
+        if use_inventory
+        else "Inventory is ignored for this calculation.",
+        "blueprint_settings": {
+            "default_me": default_me,
+            "default_te": default_te,
+            "overrides": {
+                str(tid): {"me": values[0], "te": values[1]}
+                for tid, values in blueprint_overrides.items()
+            },
+        },
         "order": result.order,
         "nodes": {
             str(t): dict(json_safe(asdict(n)), name=names.get(t, str(t)))
@@ -194,21 +236,69 @@ def calculate(user, type_id, quantity, use_inventory=True):
 
 
 @transaction.atomic
-def create_plan(user, type_id, quantity, name="", use_inventory=True):
-    result, snapshot = calculate(user, type_id, quantity, use_inventory)
-    production = ProductionPlan.objects.create(
-        user=user, item_type_id=type_id, quantity=quantity, name=name, snapshot=snapshot
+def create_plan(
+    user,
+    type_id,
+    quantity,
+    name="",
+    use_inventory=True,
+    *,
+    default_me=10,
+    default_te=20,
+    blueprint_overrides=None,
+):
+    result, snapshot = calculate(
+        user,
+        type_id,
+        quantity,
+        use_inventory,
+        default_me=default_me,
+        default_te=default_te,
+        blueprint_overrides=blueprint_overrides,
     )
+    production = ProductionPlan.objects.create(
+        user=user,
+        item_type_id=type_id,
+        quantity=quantity,
+        name=name,
+        snapshot=snapshot,
+        use_inventory=use_inventory,
+        default_material_efficiency=default_me,
+        default_time_efficiency=default_te,
+    )
+    save_blueprint_overrides(production, blueprint_overrides or {})
+    write_steps(production, result, snapshot)
+    from .jobs import reconcile_jobs
+
+    reconcile_jobs(user)
+    queue_source_refresh(user)
+    return production
+
+
+def save_blueprint_overrides(production, overrides):
+    for tid, (me, te) in overrides.items():
+        if me is None and te is None:
+            production.blueprint_overrides.filter(item_type_id=tid).delete()
+        else:
+            PlanBlueprintOverride.objects.update_or_create(
+                plan=production,
+                item_type_id=tid,
+                defaults={"material_efficiency": me, "time_efficiency": te},
+            )
+
+
+def write_steps(production, result, snapshot):
+    existing = {s.item_type_id: s for s in production.steps.all()}
+    produced = []
     position = 0
     for t in result.order:
         node = result.nodes[t]
         if not node.runs:
             continue
         position += 1
-        PlanStep.objects.create(
-            plan=production,
+        produced.append(t)
+        fields = dict(
             position=position,
-            item_type_id=t,
             blueprint_type_id=node.recipe.blueprint_id,
             activity=node.recipe.activity,
             runs=node.runs,
@@ -216,9 +306,90 @@ def create_plan(user, type_id, quantity, name="", use_inventory=True):
             service_id=node.context.service_id,
             details=snapshot["nodes"][str(t)],
         )
-    from .jobs import reconcile_jobs
+        if t in existing:
+            step = existing[t]
+            for key, value in fields.items():
+                setattr(step, key, value)
+            step.save(update_fields=list(fields))
+        else:
+            PlanStep.objects.create(plan=production, item_type_id=t, **fields)
+    obsolete = production.steps.exclude(item_type_id__in=produced)
+    detached = JobAllocation.objects.filter(step__in=obsolete).count()
+    obsolete.delete()
+    return detached
+
+
+@transaction.atomic
+def refresh_plan(
+    user, plan_id, *, default_me=None, default_te=None, use_inventory=None, blueprint_overrides=None
+):
+    """Recalculate in place, retaining compatible links and all ESI job records."""
+    production = ProductionPlan.objects.select_for_update().get(
+        pk=plan_id, user=user, archived=False
+    )
+    default_me = production.default_material_efficiency if default_me is None else default_me
+    default_te = production.default_time_efficiency if default_te is None else default_te
+    use_inventory = production.use_inventory if use_inventory is None else use_inventory
+    overrides = {
+        o.item_type_id: (o.material_efficiency, o.time_efficiency)
+        for o in production.blueprint_overrides.all()
+    }
+    overrides.update(blueprint_overrides or {})
+    result, snapshot = calculate(
+        user,
+        production.item_type_id,
+        production.quantity,
+        use_inventory,
+        default_me=default_me,
+        default_te=default_te,
+        blueprint_overrides=overrides,
+    )
+    production.default_material_efficiency = default_me
+    production.default_time_efficiency = default_te
+    production.use_inventory = use_inventory
+    production.snapshot = snapshot
+    production.refreshed_at = timezone.now()
+    production.save(
+        update_fields=[
+            "default_material_efficiency",
+            "default_time_efficiency",
+            "use_inventory",
+            "snapshot",
+            "refreshed_at",
+        ]
+    )
+    save_blueprint_overrides(production, overrides)
+    detached = write_steps(production, result, snapshot)
+
+    from .jobs import compatible, reconcile_jobs
+
+    remaining = {}
+    for allocation in (
+        JobAllocation.objects.filter(step__plan=production)
+        .select_related("job", "step__plan", "step__service__facility")
+        .order_by("job__start_date", "job__job_id")
+    ):
+        step = allocation.step
+        available = remaining.setdefault(step.pk, step.output_quantity)
+        if not compatible(allocation.job, step) or not available:
+            allocation.delete()
+            detached += 1
+            continue
+        quantity = min(allocation.quantity, available)
+        if quantity != allocation.quantity:
+            allocation.quantity = quantity
+            allocation.save(update_fields=["quantity"])
+        remaining[step.pk] -= quantity
 
     reconcile_jobs(user)
+    from .watches import evaluate_watches
+
+    evaluate_watches(user)
+    queue_source_refresh(user)
+    return production, detached
+
+
+def queue_source_refresh(user):
     # Recheck authorized accounts after saving a build, including jobs already running.
     from aa_industry_planner.tasks import refresh_source
 
@@ -226,4 +397,3 @@ def create_plan(user, type_id, quantity, name="", use_inventory=True):
 
     source_ids = list(authorized_sources(user).exclude(kind="manual").values_list("pk", flat=True))
     transaction.on_commit(lambda: [refresh_source.delay(pk) for pk in source_ids])
-    return production

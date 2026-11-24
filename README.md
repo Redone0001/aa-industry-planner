@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.4 fixes item suggestion rendering and reduces search overhead. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.5 adds archived-plan removal, plan refresh, industry bonus-family assignments and per-plan blueprint settings. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -10,9 +10,9 @@ Item search uses a dropdown with mouse and keyboard selection, a short typing de
 
 The interface inherits the selected Alliance Auth theme (including Flatly, Darkly and Materia). Cards, buttons, forms, tables, navigation and status badges use native Bootstrap components; charts and tree accents use the theme's CSS variables. Change the theme through AA's existing user settings menu.
 
-- Select an item and quantity; expand its manufacturing and reaction dependencies down to raw inputs.
+- Select an item and quantity; expand its manufacturing and reaction dependencies down to raw inputs. Refresh saved plans with current configuration; archive/restore them or remove one/all archived plans through a confirmation page.
 - Aggregate shared components before sizing jobs, allocate stock once within a plan, and show a collapsible dependency tree plus a numbered production sequence.
-- Set buy/import boundaries, blueprint ME/TE, an explicit blueprint for alternative recipes, reaction batch runs or duration, and effective character time bonuses.
+- Set buy/import boundaries and an explicit recipe in item policies. Manufacturing plans default to blueprint ME 10 / TE 20, with plan defaults and individual blueprint overrides editable inside the planner. Reactions ignore ME/TE. Set reaction batch runs or duration and effective character time bonuses in Configuration.
 - Select structure hulls, installed service modules, online states and industry rigs in Django admin. Derive product-specific material/time/cost multipliers from CCP's SDE, including security and Thukker/reactor rules. Restrict facilities to AA groups and let users assign locations per activity or product group.
 - Snapshot installation estimates using unmodified-material EIV, CCP adjusted prices, the activity's system cost index, facility cost bonuses, facility tax, SCC surcharge and optional Alpha tax.
 - Collect hourly indices for configured systems and retain 90 days, with history charts for authorized facility monitors.
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.4"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.4"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.4"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.4 adds no new dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.5 adds no new dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.4" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -135,11 +135,21 @@ refresh_public_data.delay()
 4. Add a **Facility**, entering its deployed structure ID, **structure hull type**, SDE solar system, and optional allowed groups. An empty group list makes it available to all planner users. Load the SDE first so the real hull, module and rig types are available in the selectors.
 5. Add its **Installed industry service modules**, set their online states, and select its **Installed industry rigs** on the same page. Save to see material/time/cost multipliers by activity and product family. Security strength and rig coverage are calculated automatically. Manufacturing/reaction assignment records are created from the declared services; their taxes remain editable. Only enable **Supercapital ready** after confirming the required sovereign-nullsec infrastructure.
 6. Existing facilities without a hull retain their legacy manual multipliers. To convert one, select its hull and declare its complete module/rig fit; the old manual multipliers then stop applying. Rates are fractions: `0.01` = 1%. Multipliers are remaining fractions: `0.98` = 2% reduction. The declared fit is not verified against the deployed structure's current fuel, fitting, or access rights.
-7. Users choose default manufacturing and reaction locations in **Configuration**, and can override them for particular SDE product groups. Changing settings affects newly calculated plans; existing snapshots retain their original assumptions.
+7. Users choose default manufacturing and reaction locations in **Configuration**, and can override them for the product families used by industry rigs. Leave the family empty for a catch-all. Specific families take precedence over broad Ships assignments; existing exact SDE group overrides are retained as legacy entries and take precedence until removed. Changing settings affects newly calculated plans; use **Refresh plan** to update an existing calculation.
 
 SCC defaults to 4% for the two supported planning activities and is editable per service. Missing/stale prices (older than two days), unavailable system indices (older than six hours), and missing facilities are reported explicitly; an unknown installation estimate is never presented as zero.
 
 See [the industry bonus research and rules](docs/industry-bonuses.md) for primary sources, formulas, coverage, examples and catalog refresh instructions. The bundled rules use CCP release `20261120T165826Z` (14 hulls, 9 service modules, 125 industry rigs). Legacy Outpost Conversion Rigs require manual configuration. Blueprint and character bonuses apply separately from the calculated facility multipliers.
+
+## Plan controls and blueprint settings
+
+New manufacturing plans assume **ME 10 / TE 20**. Set different defaults on the production form, then edit individual manufacturing blueprints under **Blueprint settings** in the saved plan. Empty per-blueprint ME or TE fields inherit that plan's defaults; `0` is an explicit unresearched value. **Apply blueprint settings & refresh** saves the changes and recalculates. Reactions never receive blueprint ME/TE discounts. Item policies now contain only buy/import and explicit recipe selection.
+
+**Refresh plan** recalculates the same plan with its saved blueprint settings and the current location assignments, fitted structures/rigs, item policies, character settings, prices, system indices, and stock when inventory is enabled. The plan ID and creation time remain stable; the displayed calculation time updates. Compatible job links and step IDs are retained. Obsolete/incompatible links are released with a warning while the imported EVE jobs remain recorded; refreshing never cancels or modifies in-game jobs. If recalculation fails, the previous plan remains intact. Restore an archived plan before refreshing it.
+
+Archived plans have **Remove** controls on the production list and plan detail. **Remove all archived plans** operates only on the signed-in user's archived plans. A confirmation page precedes permanent deletion. Imported jobs and inventory remain; plan snapshots, overrides, steps and their job links are removed. Active plans cannot be removed through these controls.
+
+Upgrade migration `0005` moves each saved manufacturing calculation's ME/TE values into per-plan overrides and preserves its inventory choice. Historic snapshots remain unchanged until explicitly refreshed. Existing exact-group location assignments remain usable as legacy overrides; new assignments use CCP's 18 bonus families and retain the empty catch-all.
 
 ## ESI authorization
 
@@ -207,7 +217,7 @@ The seed script prints the local demo credentials and uses synthetic recipes lab
 
 ## Scope and acceptance checks
 
-Planning currently covers deterministic **manufacturing and reactions** from SDE blueprints. Other ESI job activities appear in the jobs list, but invention probability, copying, blueprint ownership/BPC inventory, PI extraction/processing, refining, skills import, market buy-order costing, automatic logistics and EVE job submission are outside this version. Blueprint access and appropriate character skills are assumed. ME/TE and time bonuses are user declarations. Material requirements and costs are estimates for review in EVE before installation.
+Planning currently covers deterministic **manufacturing and reactions** from SDE blueprints. Other ESI job activities appear in the jobs list, but invention probability, copying, blueprint ownership/BPC inventory, PI extraction/processing, refining, skills import, market buy-order costing, automatic logistics and EVE job submission are outside this version. Blueprint access and appropriate character skills are assumed. Blueprint ME/TE default to 10/20 for manufacturing and can be overridden within each plan; effective character time bonuses are user declarations. Material requirements and costs are estimates for review in EVE before installation.
 
 Before deploying to a live community, verify the SSO round trip with multiple owned characters; personal and Director corporation imports; all-page import with a large hangar; a real running → ready → delivered job; source revocation; a watch dropping and recovering; 90-day cleanup; configured structure/rig comparisons against EVE; and one opt-in Discord DM. MariaDB and live worker acceptance tests have not been run in this workspace.
 

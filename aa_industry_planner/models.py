@@ -7,6 +7,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from .industry import BONUS_SCOPE_OFFSET, bonus_family_choices, family_activity
+
 USER = settings.AUTH_USER_MODEL
 TYPE = "eve_sde.ItemType"
 ONE = Decimal("1")
@@ -215,7 +217,13 @@ class FacilityAssignment(models.Model):
         null=True,
         blank=True,
         on_delete=models.PROTECT,
-        help_text="Optional product-group override; empty sets the activity default.",
+        help_text="Legacy exact SDE group override. New assignments use a bonus family.",
+    )
+    bonus_family = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        choices=bonus_family_choices,
+        help_text="Optional industry bonus family; empty sets the catch-all location.",
     )
     # A non-null scope preserves uniqueness of the default on MariaDB as well as SQLite.
     scope_key = models.PositiveBigIntegerField(default=0, editable=False)
@@ -228,15 +236,35 @@ class FacilityAssignment(models.Model):
         ]
 
     def clean(self):
-        self.scope_key = self.item_group_id or 0
+        self.scope_key = self.assignment_scope
+        if self.bonus_family and self.item_group_id:
+            raise ValidationError("Choose a bonus family or a legacy group, not both.")
+        if self.bonus_family and family_activity(self.bonus_family) != self.activity:
+            raise ValidationError(
+                {"bonus_family": "This bonus family belongs to another activity."}
+            )
         if self.service_id and self.service.activity != self.activity:
             raise ValidationError({"service": "The service must support the assigned activity."})
 
     def save(self, *args, **kwargs):
-        self.scope_key = self.item_group_id or 0
+        self.scope_key = self.assignment_scope
         if kwargs.get("update_fields") is not None:
             kwargs["update_fields"] = set(kwargs["update_fields"]) | {"scope_key"}
         super().save(*args, **kwargs)
+
+    @property
+    def assignment_scope(self):
+        return (
+            BONUS_SCOPE_OFFSET + self.bonus_family if self.bonus_family else self.item_group_id or 0
+        )
+
+    @property
+    def scope_label(self):
+        if self.bonus_family:
+            return self.get_bonus_family_display()
+        if self.item_group_id:
+            return f"{self.item_group.name} (legacy group)"
+        return "All other products"
 
 
 class SystemCostIndex(models.Model):
@@ -283,12 +311,6 @@ class ItemPolicy(models.Model):
     user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="industry_item_policies")
     item_type = models.ForeignKey(TYPE, on_delete=models.PROTECT)
     buy = models.BooleanField(default=False)
-    material_efficiency = models.PositiveSmallIntegerField(
-        default=0, validators=[MaxValueValidator(10)]
-    )
-    time_efficiency = models.PositiveSmallIntegerField(
-        default=0, validators=[MaxValueValidator(20)]
-    )
     blueprint_type = models.ForeignKey(
         TYPE,
         null=True,
@@ -370,6 +392,14 @@ class ProductionPlan(models.Model):
     name = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     archived = models.BooleanField(default=False)
+    use_inventory = models.BooleanField(default=True)
+    default_material_efficiency = models.PositiveSmallIntegerField(
+        default=10, validators=[MaxValueValidator(10)]
+    )
+    default_time_efficiency = models.PositiveSmallIntegerField(
+        default=20, validators=[MaxValueValidator(20)]
+    )
+    refreshed_at = models.DateTimeField(null=True, blank=True)
     snapshot = models.JSONField(default=dict)
 
     class Meta:
@@ -377,6 +407,28 @@ class ProductionPlan(models.Model):
 
     def __str__(self):
         return self.name or f"{self.item_type} × {self.quantity:,}"
+
+    @property
+    def calculated_at(self):
+        return self.refreshed_at or self.created_at
+
+
+class PlanBlueprintOverride(models.Model):
+    plan = models.ForeignKey(
+        ProductionPlan, on_delete=models.CASCADE, related_name="blueprint_overrides"
+    )
+    item_type = models.ForeignKey(TYPE, on_delete=models.PROTECT)
+    material_efficiency = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MaxValueValidator(10)]
+    )
+    time_efficiency = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MaxValueValidator(20)]
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["plan", "item_type"], name="aip_unique_plan_blueprint")
+        ]
 
 
 class PlanStep(models.Model):

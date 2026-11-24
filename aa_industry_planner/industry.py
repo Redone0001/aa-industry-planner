@@ -83,6 +83,38 @@ def matches(filter_row, group_id, category_id):
     )
 
 
+BONUS_SCOPE_OFFSET = 10**12
+
+
+def bonus_family_choices():
+    return [
+        (int(fid), row["name"])
+        for fid, row in sorted(catalog()["filters"].items(), key=lambda pair: int(pair[0]))
+    ]
+
+
+def family_activity(family_id):
+    return "reaction" if int(family_id) >= 16 else "manufacturing"
+
+
+def matching_bonus_families(activity, group_id, category_id):
+    candidates = [
+        (int(fid), row)
+        for fid, row in catalog()["filters"].items()
+        if family_activity(fid) == activity and matches(row, group_id, category_id)
+    ]
+    # An explicit product-group family wins over a broad category such as Ships.
+    candidates.sort(
+        key=lambda pair: (
+            group_id not in pair[1]["groupIDs"],
+            len(pair[1]["categoryIDs"]),
+            len(pair[1]["groupIDs"]),
+            pair[0],
+        )
+    )
+    return [fid for fid, _ in candidates]
+
+
 @dataclass(frozen=True)
 class Multipliers:
     material: Decimal = ONE

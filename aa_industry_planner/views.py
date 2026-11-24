@@ -4,23 +4,28 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
-from django.http import JsonResponse
+from django.db import transaction
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods, require_POST
 from eve_sde.models import ItemType
 
 from . import __version__
 from .engine import PlanningError
 from .forms import (
     AssignmentForm,
+    BlueprintFormSet,
     ManualStockForm,
     NotificationPreferencesForm,
     PlanForm,
+    PlanSettingsForm,
     PolicyForm,
     PreferencesForm,
     WatchForm,
+    blueprint_rows,
 )
+from .industry import BONUS_SCOPE_OFFSET
 from .models import (
     Facility,
     FacilityAssignment,
@@ -41,6 +46,7 @@ from .models import (
 from .services.inventory import authorized_sources, inventory_totals
 from .services.jobs import allocate_job, update_progress
 from .services.planning import create_plan
+from .services.planning import refresh_plan as refresh_production_plan
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
 
@@ -99,6 +105,8 @@ def plans(request):
                 form.cleaned_data["quantity"],
                 form.cleaned_data["name"],
                 form.cleaned_data["use_inventory"],
+                default_me=form.cleaned_data["default_material_efficiency"],
+                default_te=form.cleaned_data["default_time_efficiency"],
             )
             return redirect("aa_industry_planner:plan", pk=production.pk)
         except PlanningError as exc:
@@ -107,13 +115,22 @@ def plans(request):
         request,
         "plans",
         form=form,
-        plans=ProductionPlan.objects.filter(user=request.user).select_related("item_type"),
+        plans=ProductionPlan.objects.filter(user=request.user, archived=False)
+        .select_related("item_type")
+        .defer("snapshot"),
+        archived_plans=ProductionPlan.objects.filter(user=request.user, archived=True)
+        .select_related("item_type")
+        .defer("snapshot"),
     )
 
 
 @planner_access
 def plan_detail(request, pk):
     production = get_object_or_404(ProductionPlan, pk=pk, user=request.user)
+    return _plan_page(request, production)
+
+
+def _plan_page(request, production, settings_form=None, blueprints_formset=None):
     update_progress(request.user)
     steps = list(
         production.steps.select_related("item_type", "service__facility").prefetch_related(
@@ -150,6 +167,20 @@ def plan_detail(request, pk):
     visible_jobs = IndustryJob.objects.filter(
         user=request.user, source__in=authorized_sources(request.user), allocation__isnull=True
     ).exclude(status__in=["cancelled", "reverted"])
+    if settings_form is None:
+        settings_form = PlanSettingsForm(instance=production, prefix="settings")
+    if blueprints_formset is None:
+        blueprints_formset = BlueprintFormSet(
+            initial=blueprint_rows(production), prefix="blueprints"
+        )
+    for row in blueprints_formset:
+        row.fields["material_efficiency"].widget.attrs["placeholder"] = "Plan default"
+        row.fields["time_efficiency"].widget.attrs["placeholder"] = "Plan default"
+        for name, label in [("material_efficiency", "ME"), ("time_efficiency", "TE")]:
+            row.fields[name].widget.attrs["aria-label"] = (
+                f"{row.initial.get('name', 'Blueprint')} {label} override (%)"
+            )
+            row.fields[name].widget.attrs["style"] = "max-width: 8rem"
     return page(
         request,
         "plan",
@@ -158,6 +189,78 @@ def plan_detail(request, pk):
         tree=tree,
         inputs=inputs,
         candidate_jobs=visible_jobs[:300],
+        settings_form=settings_form,
+        blueprints_formset=blueprints_formset,
+    )
+
+
+@planner_access
+@require_POST
+def refresh_plan(request, pk):
+    production = get_object_or_404(ProductionPlan, pk=pk, user=request.user, archived=False)
+    settings_form = None
+    formset = None
+    options = {}
+    if request.POST.get("form") == "blueprints":
+        settings_form = PlanSettingsForm(request.POST, instance=production, prefix="settings")
+        formset = BlueprintFormSet(
+            request.POST, initial=blueprint_rows(production), prefix="blueprints"
+        )
+        settings_valid, rows_valid = settings_form.is_valid(), formset.is_valid()
+        if not settings_valid or not rows_valid:
+            return _plan_page(request, production, settings_form, formset)
+        options = {
+            "default_me": settings_form.cleaned_data["default_material_efficiency"],
+            "default_te": settings_form.cleaned_data["default_time_efficiency"],
+            "use_inventory": settings_form.cleaned_data["use_inventory"],
+            "blueprint_overrides": {
+                row.cleaned_data["item_type_id"]: (
+                    row.cleaned_data["material_efficiency"],
+                    row.cleaned_data["time_efficiency"],
+                )
+                for row in formset
+            },
+        }
+    try:
+        production, detached = refresh_production_plan(request.user, pk, **options)
+    except PlanningError as exc:
+        messages.error(request, str(exc))
+        production.refresh_from_db()
+        return _plan_page(request, production, settings_form, formset)
+    except ProductionPlan.DoesNotExist as exc:
+        raise Http404 from exc
+    messages.success(
+        request,
+        "Plan refreshed with current locations, structures, policies, and character settings.",
+    )
+    if detached:
+        messages.warning(
+            request,
+            f"{detached} job link(s) no longer match this calculation and were released. The jobs remain in All jobs; no EVE jobs were cancelled.",
+        )
+    return redirect("aa_industry_planner:plan", pk=pk)
+
+
+@planner_access
+@require_http_methods(["GET", "POST"])
+def delete_archived_plans(request, pk=None):
+    candidates = ProductionPlan.objects.filter(user=request.user, archived=True)
+    selected = (
+        get_object_or_404(candidates.select_related("item_type").defer("snapshot"), pk=pk)
+        if pk is not None
+        else None
+    )
+    if selected:
+        candidates = candidates.filter(pk=selected.pk)
+    if request.method == "POST":
+        with transaction.atomic():
+            ids = list(candidates.select_for_update().values_list("pk", flat=True))
+            candidates.filter(pk__in=ids).only("pk").delete()
+            evaluate_watches(request.user)
+        messages.success(request, f"{len(ids)} archived plan(s) removed.")
+        return redirect("aa_industry_planner:plans")
+    return page(
+        request, "delete_archived_plans", selected_plan=selected, archived_count=candidates.count()
     )
 
 
@@ -448,19 +551,21 @@ def configuration(request):
             ItemPolicy.objects.update_or_create(
                 user=request.user,
                 item_type=policy_form.cleaned_data["item_type"],
-                defaults={
-                    k: policy_form.cleaned_data[k]
-                    for k in ["buy", "material_efficiency", "time_efficiency", "blueprint_type"]
-                },
+                defaults={k: policy_form.cleaned_data[k] for k in ["buy", "blueprint_type"]},
             )
             evaluate_watches(request.user)
             return redirect("aa_industry_planner:configuration")
         if action == "assignment" and assignment_form.is_valid():
+            family = assignment_form.cleaned_data["bonus_family"]
             FacilityAssignment.objects.update_or_create(
                 user=request.user,
                 activity=assignment_form.cleaned_data["activity"],
-                item_group=assignment_form.cleaned_data["item_group"],
-                defaults={"service": assignment_form.cleaned_data["service"]},
+                scope_key=BONUS_SCOPE_OFFSET + family if family else 0,
+                defaults={
+                    "service": assignment_form.cleaned_data["service"],
+                    "bonus_family": family,
+                    "item_group": None,
+                },
             )
             return redirect("aa_industry_planner:configuration")
     return page(
@@ -525,7 +630,9 @@ def facilities(request):
     facilities = list(
         Facility.visible_to(request.user)
         .select_related("solar_system", "structure_type")
-        .prefetch_related("services__rigs__item_type", "fitted_modules__item_type", "fitted_rigs__item_type")
+        .prefetch_related(
+            "services__rigs__item_type", "fitted_modules__item_type", "fitted_rigs__item_type"
+        )
     )
     for facility in facilities:
         recent = SystemCostIndex.objects.filter(
