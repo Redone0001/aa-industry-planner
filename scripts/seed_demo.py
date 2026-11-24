@@ -28,10 +28,13 @@ from eve_sde.models import (
     SolarSystem,
 )  # noqa: E402
 
+from aa_industry_planner.industry import catalog
 from aa_industry_planner.models import (
     AdjustedPrice,
     Facility,
     FacilityAssignment,
+    FacilityFittedRig,
+    FacilityModule,
     FacilityService,
     IndustryJob,
     InventorySource,
@@ -46,6 +49,41 @@ from aa_industry_planner.services.watches import evaluate_watches  # noqa: E402
 
 assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3"
 assert Path(settings.DATABASES["default"]["NAME"]).resolve() == ROOT / "dev.sqlite3"
+
+
+def seed_fit_examples():
+    """Add real fitting metadata and example fits to this synthetic local demo."""
+    data = catalog()
+    for tid, row in data["types"].items():
+        group_id = row["groupID"]
+        metadata = data["groups"][str(group_id)]
+        category, _ = ItemCategory.objects.get_or_create(
+            id=metadata["categoryID"], defaults={"name": "Structure fitting types"}
+        )
+        group, _ = ItemGroup.objects.get_or_create(
+            id=group_id, defaults={"name": metadata["name"], "category": category}
+        )
+        ItemType.objects.get_or_create(
+            id=int(tid), defaults={"name": row["name"], "group": group, "published": True}
+        )
+    system, _ = SolarSystem.objects.get_or_create(
+        id=900000002, defaults={"name": "Demo · Nullsec Fit Preview", "security_status": -0.5}
+    )
+    for structure_id, name, hull, modules, rig in [
+        (999000000002, "Demo · Sotiyo with T2 ship rig", 35827, [35878, 35881], 37181),
+        (999000000003, "Demo · Tatara with T2 reactor rig", 35836, [45537, 45538, 45539], 46497),
+    ]:
+        facility, _ = Facility.objects.get_or_create(
+            structure_id=structure_id,
+            defaults={"name": name, "solar_system": system, "structure_type_id": hull},
+        )
+        for module in modules:
+            FacilityModule.objects.get_or_create(facility=facility, item_type_id=module)
+        FacilityFittedRig.objects.get_or_create(facility=facility, item_type_id=rig)
+        facility.sync_services()
+
+
+seed_fit_examples()
 
 if User.objects.filter(username="industry-demo").exists():
     print("Demo already seeded. Local login: industry-demo / local-industry-demo")

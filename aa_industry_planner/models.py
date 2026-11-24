@@ -52,6 +52,18 @@ class Facility(models.Model):
     name = models.CharField(max_length=200)
     structure_id = models.PositiveBigIntegerField(unique=True)
     solar_system = models.ForeignKey("eve_sde.SolarSystem", on_delete=models.PROTECT)
+    structure_type = models.ForeignKey(
+        TYPE,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        help_text="Hull type. Selecting a hull enables automatic bonuses from the declared fit.",
+    )
+    supercapital_ready = models.BooleanField(
+        default=False,
+        help_text="Confirm the structure is in sovereign nullsec with the required supercapital infrastructure active.",
+    )
     active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
     allowed_groups = models.ManyToManyField(
@@ -64,6 +76,49 @@ class Facility(models.Model):
 
     def __str__(self):
         return self.name
+
+    def industry_fit(self, *, modules=None, rigs=None):
+        from .industry import FitError, IndustryFit
+
+        if not self.structure_type_id:
+            raise FitError("Select the structure hull to use automatic industry bonuses.")
+        return IndustryFit(
+            self.structure_type_id,
+            self.solar_system_id,
+            self.solar_system.security_status,
+            tuple(
+                modules
+                if modules is not None
+                else ((m.item_type_id, m.online) for m in self.fitted_modules.all())
+            ),
+            tuple(rigs if rigs is not None else (r.item_type_id for r in self.fitted_rigs.all())),
+            self.supercapital_ready,
+        )
+
+    def sync_services(self):
+        """Keep stable assignment/tax records; fitted modules govern availability."""
+        if not self.structure_type_id:
+            return
+        # A module save may arrive through a prefetched facility instance.
+        fit = self.industry_fit(
+            modules=list(
+                FacilityModule.objects.filter(facility_id=self.pk).values_list(
+                    "item_type_id", "online"
+                )
+            ),
+            rigs=[],
+        )
+        activities, online = fit.activities(online_only=False), fit.activities()
+        for activity in Activity.values:
+            service = self.services.filter(activity=activity).first()
+            if activity in activities:
+                if service is None:
+                    service = self.services.create(activity=activity)
+                service.online = activity in online
+                service.save(update_fields=["online"])
+            elif service is not None:
+                service.online = False
+                service.save(update_fields=["online"])
 
     @classmethod
     def visible_to(cls, user):
@@ -107,6 +162,45 @@ class FacilityRig(models.Model):
     )
     material_multiplier = multiplier()
     time_multiplier = multiplier()
+
+    def __str__(self):
+        return str(self.item_type)
+
+
+class FacilityModule(models.Model):
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name="fitted_modules")
+    item_type = models.ForeignKey(TYPE, on_delete=models.PROTECT, related_name="+")
+    online = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["facility", "item_type"], name="aip_unique_fitted_module"
+            )
+        ]
+
+    def __str__(self):
+        return str(self.item_type)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.facility.sync_services()
+
+    def delete(self, *args, **kwargs):
+        facility = self.facility
+        result = super().delete(*args, **kwargs)
+        facility.sync_services()
+        return result
+
+
+class FacilityFittedRig(models.Model):
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name="fitted_rigs")
+    item_type = models.ForeignKey(TYPE, on_delete=models.PROTECT, related_name="+")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["facility", "item_type"], name="aip_unique_fitted_rig")
+        ]
 
     def __str__(self):
         return str(self.item_type)

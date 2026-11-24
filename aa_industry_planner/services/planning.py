@@ -6,6 +6,7 @@ from django.utils import timezone
 from eve_sde.models import BlueprintActivityProduct, ItemType
 
 from aa_industry_planner.engine import PlanningError, ProductionContext, Recipe, plan
+from aa_industry_planner.industry import FitError, catalog
 from aa_industry_planner.models import (
     AdjustedPrice,
     Facility,
@@ -87,7 +88,9 @@ def calculate(user, type_id, quantity, use_inventory=True):
             user=user, service__online=True, service__facility__in=Facility.visible_to(user)
         )
         .select_related("service__facility__solar_system")
-        .prefetch_related("service__rigs")
+        .prefetch_related(
+            "service__rigs", "service__facility__fitted_modules", "service__facility__fitted_rigs"
+        )
     }
     group_cache = {}
 
@@ -102,10 +105,11 @@ def calculate(user, type_id, quantity, use_inventory=True):
             "time_multiplier": getattr(preferences, f"{recipe.activity}_time_multiplier"),
         }
         if item_id not in group_cache:
-            group_cache[item_id] = ItemType.objects.values_list("group_id", flat=True).get(
-                pk=item_id
-            )
-        service = assignments.get((recipe.activity, group_cache[item_id])) or assignments.get(
+            group_cache[item_id] = ItemType.objects.values_list(
+                "group_id", "group__category_id"
+            ).get(pk=item_id)
+        group_id, category_id = group_cache[item_id]
+        service = assignments.get((recipe.activity, group_id)) or assignments.get(
             (recipe.activity, 0)
         )
         if service:
@@ -116,14 +120,32 @@ def calculate(user, type_id, quantity, use_inventory=True):
             # Never silently quote an old system index as today's fee.
             if index and index.recorded_at < timezone.now() - timezone.timedelta(hours=6):
                 index = None
-            material, time = service.material_multiplier, service.time_multiplier
-            for rig in service.rigs.all():
-                if (
-                    rig.applies_to_group_id is None
-                    or rig.applies_to_group_id == group_cache[item_id]
-                ):
-                    material *= rig.material_multiplier
-                    time *= rig.time_multiplier
+            material, time, cost = (
+                service.material_multiplier,
+                service.time_multiplier,
+                service.cost_multiplier,
+            )
+            if facility.structure_type_id:
+                try:
+                    fit = facility.industry_fit()
+                    bonuses = fit.multipliers(recipe.activity, group_id, category_id)
+                except FitError as exc:
+                    raise PlanningError(f"{facility.name}: {exc}") from exc
+                material, time, cost = bonuses.material, bonuses.time, bonuses.cost
+                options["bonus_source"] = f"CCP SDE {catalog()['release']}; declared structure fit"
+                options["facility_fit"] = {
+                    "hull_type_id": fit.hull_id,
+                    "modules": [{"type_id": tid, "online": online} for tid, online in fit.modules],
+                    "rig_type_ids": list(fit.rigs),
+                    "security_band": fit.band,
+                    "supercapital_ready": fit.supercapital_ready,
+                }
+            else:
+                options["bonus_source"] = "Manual facility configuration"
+                for rig in service.rigs.all():
+                    if rig.applies_to_group_id is None or rig.applies_to_group_id == group_id:
+                        material *= rig.material_multiplier
+                        time *= rig.time_multiplier
             options.update(
                 service_id=service.pk,
                 facility=facility.name,
@@ -133,7 +155,7 @@ def calculate(user, type_id, quantity, use_inventory=True):
                 index_recorded_at=index.recorded_at.isoformat() if index else None,
                 material_multiplier=material,
                 time_multiplier=time * options["time_multiplier"],
-                cost_multiplier=service.cost_multiplier,
+                cost_multiplier=cost,
                 facility_tax=service.facility_tax,
                 scc_surcharge=service.scc_surcharge,
             )

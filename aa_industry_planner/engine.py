@@ -41,6 +41,8 @@ class ProductionContext:
     te: int = 0
     reaction_runs: int = 1
     reaction_hours: int | None = None
+    bonus_source: str = "Unassigned facility"
+    facility_fit: dict | None = None
 
 
 @dataclass

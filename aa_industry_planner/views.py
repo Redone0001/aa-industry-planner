@@ -530,10 +530,12 @@ def mark_read(request):
 @planner_access
 @permission_required("aa_industry_planner.manage_facilities", raise_exception=True)
 def facilities(request):
+    from .industry import FitError
+
     facilities = list(
         Facility.visible_to(request.user)
-        .select_related("solar_system")
-        .prefetch_related("services__rigs__item_type")
+        .select_related("solar_system", "structure_type")
+        .prefetch_related("services__rigs__item_type", "fitted_modules__item_type", "fitted_rigs__item_type")
     )
     for facility in facilities:
         recent = SystemCostIndex.objects.filter(
@@ -544,6 +546,11 @@ def facilities(request):
         for index in recent:
             latest.setdefault(index.activity, index)
         facility.current_indices = list(latest.values())
+        if facility.structure_type_id:
+            try:
+                facility.bonus_rows = facility.industry_fit().preview()
+            except FitError as exc:
+                facility.bonus_error = str(exc)
     return page(request, "facilities", facilities=facilities)
 
 

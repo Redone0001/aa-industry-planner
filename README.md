@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-This is the first implementation (0.1.2). Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.3 adds automatic structure, service and rig bonuses from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -11,7 +11,7 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 - Select an item and quantity; expand its manufacturing and reaction dependencies down to raw inputs.
 - Aggregate shared components before sizing jobs, allocate stock once within a plan, and show a collapsible dependency tree plus a numbered production sequence.
 - Set buy/import boundaries, blueprint ME/TE, an explicit blueprint for alternative recipes, reaction batch runs or duration, and effective character time bonuses.
-- Configure structures, service availability, taxes, effective structure bonuses and installed rig bonuses in Django admin. Restrict facilities to AA groups and let users assign an available facility per activity, with optional product-group overrides.
+- Select structure hulls, installed service modules, online states and industry rigs in Django admin. Derive product-specific material/time/cost multipliers from CCP's SDE, including security and Thukker/reactor rules. Restrict facilities to AA groups and let users assign locations per activity or product group.
 - Snapshot installation estimates using unmodified-material EIV, CCP adjusted prices, the activity's system cost index, facility cost bonuses, facility tax, SCC surcharge and optional Alpha tax.
 - Collect hourly indices for configured systems and retain 90 days, with history charts for authorized facility monitors.
 - Connect multiple owned characters and authorized corporations through AA SSO. Import all pages of assets and industry jobs, periodically and on demand. Support additive, manually declared stock that can be excluded to avoid duplication.
@@ -24,22 +24,32 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.2"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.3"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.2"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.3"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
+
+To upgrade an existing planner installation, activate the AA virtual environment and run:
+
+```sh
+python -m pip install --upgrade --no-deps \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.3"
+python manage.py migrate aa_industry_planner
+```
+
+Restart AA's web and Celery worker processes afterwards. Version 0.1.3 adds no new dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.2" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.3" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -119,12 +129,14 @@ refresh_public_data.delay()
 1. Grant `aa_industry_planner.access_planner` to the intended industrialist groups.
 2. Grant `aa_industry_planner.use_corporation_data` only to users allowed to connect their own corporation data. This permission supplements ESI scopes and in-game roles.
 3. Grant `aa_industry_planner.manage_facilities` to people who should see the facility/index monitor. Django admin model permissions separately control editing structures and other backend settings.
-4. Add a **Facility**, entering its EVE structure/station ID, SDE solar system, and optional allowed groups. An empty group list makes it available to all planner users.
-5. Add its **Facility services** (manufacturing and/or reactions), installed service names, online status and effective bonuses. Open a service to add **Facility rigs**, optionally limited to a product group.
-6. Rates are fractions: `0.01` = 1%. Multipliers are the remaining fraction after a bonus: `0.98` = 2% reduction. Rig multipliers must include the applicable security-space effect. Bonuses are configured explicitly; the app does not infer an operational fit or docking rights from a structure ID.
+4. Add a **Facility**, entering its deployed structure ID, **structure hull type**, SDE solar system, and optional allowed groups. An empty group list makes it available to all planner users. Load the SDE first so the real hull, module and rig types are available in the selectors.
+5. Add its **Installed industry service modules**, set their online states, and select its **Installed industry rigs** on the same page. Save to see material/time/cost multipliers by activity and product family. Security strength and rig coverage are calculated automatically. Manufacturing/reaction assignment records are created from the declared services; their taxes remain editable. Only enable **Supercapital ready** after confirming the required sovereign-nullsec infrastructure.
+6. Existing facilities without a hull retain their legacy manual multipliers. To convert one, select its hull and declare its complete module/rig fit; the old manual multipliers then stop applying. Rates are fractions: `0.01` = 1%. Multipliers are remaining fractions: `0.98` = 2% reduction. The declared fit is not verified against the deployed structure's current fuel, fitting, or access rights.
 7. Users choose default manufacturing and reaction locations in **Configuration**, and can override them for particular SDE product groups. Changing settings affects newly calculated plans; existing snapshots retain their original assumptions.
 
 SCC defaults to 4% for the two supported planning activities and is editable per service. Missing/stale prices (older than two days), unavailable system indices (older than six hours), and missing facilities are reported explicitly; an unknown installation estimate is never presented as zero.
+
+See [the industry bonus research and rules](docs/industry-bonuses.md) for primary sources, formulas, coverage, examples and catalog refresh instructions. The bundled rules use CCP release `20261120T165826Z` (14 hulls, 9 service modules, 125 industry rigs). Legacy Outpost Conversion Rigs require manual configuration. Blueprint and character bonuses apply separately from the calculated facility multipliers.
 
 ## ESI authorization
 
