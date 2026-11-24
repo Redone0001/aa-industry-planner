@@ -3,13 +3,18 @@ from collections import defaultdict
 from django.db.models import Count, Sum
 
 from aa_industry_planner.models import Asset, IndustryJob, InventorySource, ManualStock
+from aa_industry_planner.providers import missing_scopes
 
 
 def authorized_sources(user):
     """Recheck local AA ownership and permissions on reads, not only at connection time."""
     from allianceauth.authentication.models import CharacterOwnership
 
-    sources = InventorySource.objects.filter(user=user, enabled=True).select_related("token")
+    sources = (
+        InventorySource.objects.filter(user=user, enabled=True)
+        .select_related("token")
+        .prefetch_related("token__scopes")
+    )
     owned = {
         o.character.character_id: (o.owner_hash, o.character.corporation_id)
         for o in CharacterOwnership.objects.filter(user=user).select_related("character")
@@ -23,7 +28,7 @@ def authorized_sources(user):
         if not token or token.user_id != user.pk or token.character_id not in owned:
             continue
         owner_hash, corporation_id = owned[token.character_id]
-        if owner_hash != token.character_owner_hash:
+        if owner_hash != token.character_owner_hash or missing_scopes(token, source.kind):
             continue
         if source.kind == "corporation":
             if (
@@ -58,7 +63,12 @@ def inventory_totals(user):
 def source_overview(user):
     """Connection counts are separate from manual stock and AA character ownership."""
     allowed = set(authorized_sources(user).values_list("pk", flat=True))
-    sources = list(InventorySource.objects.filter(user=user).order_by("kind", "name"))
+    sources = list(
+        InventorySource.objects.filter(user=user)
+        .select_related("token")
+        .prefetch_related("token__scopes")
+        .order_by("kind", "name")
+    )
     job_counts = dict(
         IndustryJob.objects.filter(user=user)
         .values("source_id")
@@ -66,6 +76,7 @@ def source_overview(user):
         .values_list("source_id", "total")
     )
     for source in sources:
+        source.missing_scopes = missing_scopes(source.token, source.kind)
         source.connected = source.pk in allowed and source.kind != "manual"
         source.needs_reconnection = source.kind != "manual" and source.pk not in allowed
         source.imported_jobs = job_counts.get(source.pk, 0)

@@ -359,9 +359,9 @@ def source_action(request, pk):
 def connect(kind):
     from esi.decorators import token_required
 
-    from .providers import CHARACTER_SCOPES, CORPORATION_SCOPES
+    from .providers import missing_scopes, required_scopes
 
-    scopes = CORPORATION_SCOPES if kind == "corporation" else CHARACTER_SCOPES
+    scopes = required_scopes(kind)
 
     def decorator(view):
         @planner_access
@@ -387,6 +387,28 @@ def connect(kind):
                 raise PermissionDenied(
                     "Add this character to your Alliance Auth account before connecting it."
                 )
+            # django-esi checks selected tokens, but callbacks bypass that query.
+            # Apply the same scope/validity requirements to every entry path.
+            from esi.models import Token
+
+            missing = missing_scopes(token, kind)
+            if missing:
+                raise PermissionDenied(
+                    f"Missing ESI permissions: {', '.join(missing)}. Reconnect this source."
+                )
+            token = (
+                Token.objects.filter(
+                    pk=token.pk,
+                    character_id=ownership.character.character_id,
+                    character_owner_hash=ownership.owner_hash,
+                    user_id=token.user_id,
+                )
+                .require_scopes(scopes)
+                .require_valid()
+                .first()
+            )
+            if not token:
+                raise PermissionDenied("A valid ESI token with all required permissions is needed.")
             token.user = request.user
             token.save(update_fields=["user"])
             from .providers import ESI

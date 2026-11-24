@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from aa_industry_planner.providers import ESI, esi
+from aa_industry_planner.providers import ESI, esi, required_scopes
 
 
 def test_operations_exist_in_reviewed_ccp_contract():
@@ -37,3 +37,22 @@ def test_job_import_requests_completed_jobs():
     client.Industry.GetCharactersCharacterIdIndustryJobs.assert_called_once_with(
         character_id=90000001, include_completed=True, token=source.token
     )
+
+
+def test_requested_scopes_match_the_reviewed_ccp_endpoint_contract():
+    contract = json.loads((Path(__file__).parent / "fixtures" / "esi_contract.json").read_text())
+    for kind, operations in {
+        "character": ["GetCharactersCharacterIdAssets", "GetCharactersCharacterIdIndustryJobs"],
+        "corporation": [
+            "GetCorporationsCorporationIdAssets",
+            "GetCorporationsCorporationIdIndustryJobs",
+            "GetCharactersCharacterIdRoles",
+        ],
+    }.items():
+        expected = {
+            scope
+            for operation in operations
+            for security in contract["operations"][operation]["security"]
+            for scope in security["OAuth2"]
+        }
+        assert set(required_scopes(kind)) == expected

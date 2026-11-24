@@ -6,7 +6,7 @@
   <p class="mt-3">Personal jobs come from each connected character; corporation jobs come from connected corporation sources. Manufacturing, reactions, copying, invention and blueprint research jobs all appear here.</p>
   {% for source in sources %}{% if source.kind != 'manual' %}<div class="aip-source">
     <div><strong>{{ source.name }}</strong><small>{{ source.get_kind_display }} · Jobs last synced: {{ source.last_jobs_sync|date:'d M H:i'|default:'Never synced' }} · {{ source.imported_jobs }} imported job{{ source.imported_jobs|pluralize }}</small>
-    {% if source.needs_reconnection %}<small class="text-warning-emphasis">Reconnect this source to restore access.</small>{% endif %}{% if source.last_error %}<small class="text-warning-emphasis">{{ source.last_error }}</small>{% endif %}
+    {% if source.needs_reconnection %}<small class="text-warning-emphasis">Reconnect this source to restore access.</small>{% endif %}{% if source.missing_scopes %}<small class="text-warning-emphasis">Missing ESI permissions: {{ source.missing_scopes|join:', ' }}.</small>{% endif %}{% if source.last_error %}<small class="text-warning-emphasis">{{ source.last_error }}</small>{% endif %}
     {% if source.connected and not source.last_jobs_sync %}<small>Waiting for the first import. Refresh queues work for the AA Celery worker.</small>{% endif %}</div>
     {% if source.connected %}<form method="post" action="{% url 'aa_industry_planner:source_action' source.pk %}">{% csrf_token %}<input type="hidden" name="return_to" value="jobs"><button class="btn btn-secondary btn-sm" name="action" value="refresh">Refresh jobs & assets</button></form>{% endif %}
   </div>{% endif %}{% endfor %}

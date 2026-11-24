@@ -12,6 +12,20 @@ CORPORATION_SCOPES = [
     "esi-characters.read_corporation_roles.v1",
 ]
 
+
+def required_scopes(kind):
+    if kind == "corporation":
+        return CORPORATION_SCOPES
+    if kind == "character":
+        return CHARACTER_SCOPES
+    return []
+
+
+def missing_scopes(token, kind):
+    granted = {scope.name for scope in token.scopes.all()} if token else set()
+    return [scope for scope in required_scopes(kind) if scope not in granted]
+
+
 esi = ESIClientProvider(
     compatibility_date="2026-11-19",
     ua_appname="aa-industry-planner",

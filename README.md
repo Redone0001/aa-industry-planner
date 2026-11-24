@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.6 adds a zoomable dependency graph, a clearer tree with branch and plan totals, and visible ESI connection counts and job-import status. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.7 validates token permissions on every connection path, reports missing scopes in source status, and uses refreshed token instances for imports. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.7"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.7"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.7"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.6 adds no new migrations or dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.7 adds no new migrations or dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.7" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -178,6 +178,10 @@ esi-industry.read_corporation_jobs.v1
 esi-characters.read_corporation_roles.v1
 ```
 
+The EVE developer application configured by AA's `ESI_SSO_CLIENT_ID` must have these scopes enabled in its application registration. Enable the personal pair for character connections and the three corporation scopes for corporation connections. The planner requests the full scope set for the chosen source; an ordinary AA login token is insufficient. An existing token is offered only when that single token has **all** required scopes. A token with additional scopes is accepted. Separate tokens with one permission each are not combined.
+
+Select **Connect character** (or **Connect corporation**) to choose an existing eligible token. Use **Add Token / New Character** on that selection page if the desired character has no eligible token, then authorize it through EVE SSO. Refreshing an old token does not add newly requested scopes. The planner rechecks granted scopes and token validity after the SSO callback and before enabling the source. These checks supplement AA ownership and user permissions. See [Django-ESI's token selection documentation](https://django-esi.readthedocs.io/en/latest/developer.html) and [CCP's SSO authorization documentation](https://developers.eveonline.com/docs/services/sso/).
+
 Corporation asset access requires a current Director. The module checks AA ownership and owner hash, token ownership and scopes, its corporation-data permission, current ESI corporation membership and the Director role. Jobs and assets are private to the connecting AA user; facilities are shared configuration. A corporation can have one source per user, avoiding duplicate imports when several of that user's characters have access.
 
 Jobs are read from these ESI endpoints:
@@ -189,9 +193,9 @@ Jobs are read from these ESI endpoints:
 
 Both imports request `include_completed=true`; ESI documents completed jobs within the past 90 days. **All jobs** includes manufacturing, reactions, ME/TE research, copying and invention. Research/copying jobs can lack an output item ID; the list then uses the blueprint name. Manufacturing and reactions remain the supported production-planning activities.
 
-Under **All jobs → Job sources and import status**, each source shows its last jobs sync, imported count and errors, with a refresh control. A new source remains **Never synced** until the AA Celery worker processes the queued import. A revoked or disabled source needs reconnection. Excluding stock from planning does not hide that source's jobs.
+Under **All jobs → Job sources and import status**, each source shows its last jobs sync, imported count and errors, with a refresh control. A new source remains **Never synced** until the AA Celery worker processes the queued import. A revoked or disabled source needs reconnection. A token missing required scopes is excluded from connected-source counts and authorized data reads; the exact missing permission names appear in Inventory and job source status. No token secrets are displayed. Excluding stock from planning does not hide that source's jobs.
 
-Refreshing uses django-esi's token refresh, ETags, pagination and rate-limit handling. A refresh button queues work; it cannot bypass CCP's cache lifetime. The worker fetches complete asset and job datasets before replacing assets in one transaction. Failed refreshes retain the previous snapshot and report the failure. Local authorization failures disable the source until it is reconnected. Cached corporate data is not an assertion of live access; ESI and AA membership changes become known when those systems refresh.
+Refreshing uses django-esi's token refresh, ETags, pagination and rate-limit handling. After validity checking, the import uses the refreshed token instance so it does not retry with stale rotated credentials. A refresh button queues work; it cannot bypass CCP's cache lifetime. The worker fetches complete asset and job datasets before replacing assets in one transaction. Failed refreshes retain the previous snapshot and report the failure. Local authorization failures disable the source until it is reconnected. Cached corporate data is not an assertion of live access; ESI and AA membership changes become known when those systems refresh.
 
 ## Job progress and inventory semantics
 

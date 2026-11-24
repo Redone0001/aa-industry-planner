@@ -13,7 +13,7 @@ from aa_industry_planner.models import (
     InventorySource,
     SystemCostIndex,
 )
-from aa_industry_planner.providers import CHARACTER_SCOPES, CORPORATION_SCOPES, ESI
+from aa_industry_planner.providers import ESI, missing_scopes, required_scopes
 
 from .inventory import authorized_sources
 from .jobs import reconcile_jobs
@@ -23,19 +23,26 @@ def validate_source(source, api):
     if not source.user.is_active or not source.user.has_perm("aa_industry_planner.access_planner"):
         raise PermissionDenied("Planner access has been revoked.")
     if not authorized_sources(source.user).filter(pk=source.pk).exists():
+        missing = missing_scopes(source.token, source.kind)
+        if missing:
+            raise PermissionDenied(
+                f"Missing ESI permissions: {', '.join(missing)}. Reconnect this source."
+            )
         raise PermissionDenied(
             "Character ownership, token or corporation access has changed. Reconnect this source."
         )
     from esi.models import Token
 
-    scopes = CORPORATION_SCOPES if source.kind == "corporation" else CHARACTER_SCOPES
-    if (
-        not Token.objects.filter(pk=source.token_id, user=source.user)
-        .require_scopes(scopes)
+    token = (
+        Token.objects.filter(pk=source.token_id, user=source.user)
+        .require_scopes(required_scopes(source.kind))
         .require_valid()
-        .exists()
-    ):
+        .first()
+    )
+    if not token:
         raise PermissionDenied("The source requires a valid token with the requested scopes.")
+    # require_valid may rotate credentials on a different Token instance.
+    source.token = token
     if source.kind == "corporation":
         character = api.character(source.token.character_id)
         if character["corporation_id"] != source.owner_id:
