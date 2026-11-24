@@ -7,15 +7,11 @@ from eve_sde.models import BlueprintActivityProduct, ItemType
 
 from aa_industry_planner.engine import PlanningError, ProductionContext, Recipe, plan
 from aa_industry_planner.industry import (
-    BONUS_SCOPE_OFFSET,
     FitError,
     catalog,
-    matching_bonus_families,
 )
 from aa_industry_planner.models import (
     AdjustedPrice,
-    Facility,
-    FacilityAssignment,
     ItemPolicy,
     JobAllocation,
     PlanBlueprintOverride,
@@ -25,7 +21,8 @@ from aa_industry_planner.models import (
     UserPreferences,
 )
 
-from .inventory import inventory_totals
+from .inventory import inventory_by_location
+from .locations import InventoryLocations
 
 
 class SDERecipes:
@@ -110,17 +107,7 @@ def calculate(
     validate_blueprints(default_me, default_te, blueprint_overrides)
     policies = {p.item_type_id: p for p in ItemPolicy.objects.filter(user=user)}
     preferences, _ = UserPreferences.objects.get_or_create(user=user)
-    assignments = {
-        (a.activity, a.scope_key): a.service
-        for a in FacilityAssignment.objects.filter(
-            user=user, service__online=True, service__facility__in=Facility.visible_to(user)
-        )
-        .select_related("service__facility__solar_system")
-        .prefetch_related(
-            "service__rigs", "service__facility__fitted_modules", "service__facility__fitted_rigs"
-        )
-    }
-    group_cache = {}
+    locations = InventoryLocations(user, policies)
 
     def context_for(item_id, recipe):
         me, te = blueprint_overrides.get(item_id, (None, None))
@@ -132,18 +119,9 @@ def calculate(
             "alpha_tax": preferences.alpha_clone_tax,
             "time_multiplier": getattr(preferences, f"{recipe.activity}_time_multiplier"),
         }
-        if item_id not in group_cache:
-            group_cache[item_id] = ItemType.objects.values_list(
-                "group_id", "group__category_id"
-            ).get(pk=item_id)
-        group_id, category_id = group_cache[item_id]
-        service = assignments.get((recipe.activity, group_id))
-        if service is None:
-            for family_id in matching_bonus_families(recipe.activity, group_id, category_id):
-                service = assignments.get((recipe.activity, BONUS_SCOPE_OFFSET + family_id))
-                if service is not None:
-                    break
-        service = service or assignments.get((recipe.activity, 0))
+        service = locations.service_for(item_id, recipe.activity)
+        group_id, category_id = locations.groups[item_id]
+        options["stock_location_ids"] = locations.scope(item_id, recipe.activity).location_ids
         if service:
             facility = service.facility
             index = SystemCostIndex.objects.filter(
@@ -204,9 +182,11 @@ def calculate(
         quantity,
         SDERecipes(policies),
         context_for,
-        inventory_totals(user) if use_inventory else {},
+        {},
         [p.item_type_id for p in policies.values() if p.buy],
         prices,
+        stock_by_location=inventory_by_location(user, locations) if use_inventory else {},
+        root_stock_scope=locations.item_scope(type_id),
     )
     type_ids = list(result.nodes)
     names = dict(ItemType.objects.filter(pk__in=type_ids).values_list("id", "name"))
@@ -215,7 +195,7 @@ def calculate(
         "quantity": quantity,
         "calculated_at": timezone.now().isoformat(),
         "inventory_used": use_inventory,
-        "inventory_scope": "All enabled included sources; this is a plan snapshot, not a stock reservation."
+        "inventory_scope": "Stock is limited to each consuming job’s assigned structure and its activity storage. Stock elsewhere or without a structure is excluded. This snapshot is not a stock reservation."
         if use_inventory
         else "Inventory is ignored for this calculation.",
         "blueprint_settings": {
@@ -232,6 +212,38 @@ def calculate(
             for t, n in result.nodes.items()
         },
     }
+    for node in snapshot["nodes"].values():
+        node["input_inventory"] = []
+        node["stock_locations"] = []
+    for node in snapshot["nodes"].values():
+        for requirement in node["inventory_requirements"]:
+            allocations = [
+                {
+                    "location_id": int(loc),
+                    "name": locations.names.get(int(loc), str(loc)),
+                    "quantity": amount,
+                    "transfer": bool(
+                        requirement["destination_id"] and int(loc) != requirement["destination_id"]
+                    ),
+                }
+                for loc, amount in requirement["allocations"].items()
+            ]
+            node["stock_locations"].extend(allocations)
+            parent = snapshot["nodes"].get(str(requirement["consumer_id"]))
+            if parent is not None:
+                parent["input_inventory"].append(
+                    dict(
+                        type_id=node["type_id"],
+                        name=node["name"],
+                        required=requirement["quantity"],
+                        from_stock=requirement["from_stock"],
+                        missing=requirement["quantity"] - requirement["from_stock"],
+                        allocations=allocations,
+                    )
+                )
+    snapshot["inventory_locations"] = [
+        dict(location_id=loc, name=name) for loc, name in sorted(locations.names.items())
+    ]
     return result, snapshot
 
 

@@ -17,7 +17,12 @@ from eve_sde.models import (
     SolarSystem,
 )
 
-from aa_industry_planner.models import Facility, FacilityService, InventorySource
+from aa_industry_planner.models import (
+    Facility,
+    FacilityAssignment,
+    FacilityService,
+    InventorySource,
+)
 from aa_industry_planner.providers import CHARACTER_SCOPES, CORPORATION_SCOPES
 
 current_app.config_from_object("django.conf:settings", namespace="CELERY")
@@ -143,3 +148,9 @@ def source(user):
         name=character.character_name,
         token=token,
     )
+
+
+@pytest.fixture
+def assigned_facility(user, facility):
+    FacilityAssignment.objects.create(user=user, activity="manufacturing", service=facility)
+    return facility.facility

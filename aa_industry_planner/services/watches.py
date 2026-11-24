@@ -11,6 +11,7 @@ from aa_industry_planner.models import (
 
 from .inventory import authorized_sources, inventory_totals
 from .jobs import job_output
+from .locations import InventoryLocations
 from .notifications import emit
 from .planning import create_plan
 
@@ -19,12 +20,18 @@ from .planning import create_plan
 def evaluate_watches(user):
     UserPreferences.objects.get_or_create(user=user)
     UserPreferences.objects.select_for_update().get(user=user)
-    stock = inventory_totals(user)
+    locations = InventoryLocations(user)
+    stock = inventory_totals(user, locations)
     policies = {p.item_type_id: p for p in ItemPolicy.objects.filter(user=user)}
     incoming = {}
     for job in IndustryJob.objects.filter(
         user=user, source__in=authorized_sources(user), status__in=["active", "paused", "ready"]
     ):
+        if (
+            not job.product_type_id
+            or job.facility_id not in locations.item_scope(job.product_type_id).location_ids
+        ):
+            continue
         incoming[job.product_type_id] = incoming.get(job.product_type_id, 0) + job_output(job)
     for watch in InventoryWatch.objects.filter(user=user).select_related("item_type"):
         shortage = max(0, watch.minimum - stock.get(watch.item_type_id, 0)) if watch.enabled else 0
@@ -40,7 +47,11 @@ def evaluate_watches(user):
         covered_by_plan = 0
         if existing and existing.plan and not existing.plan.archived:
             root = existing.plan.steps.filter(item_type=watch.item_type).first()
-            if root:
+            if (
+                root
+                and root.details.get("context", {}).get("structure_id")
+                in locations.item_scope(watch.item_type_id).location_ids
+            ):
                 # Count unallocated planned output; allocated jobs are already in incoming.
                 allocated = sum(
                     a.quantity

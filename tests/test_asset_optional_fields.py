@@ -25,7 +25,9 @@ class AssetResponse(BaseModel):
     "copy,flag",
     [(None, "Hangar"), (False, None), (True, "Hangar"), (False, "Hangar"), (None, None)],
 )
-def test_sdk_optional_asset_values_are_saved_without_nulls(user, source, kind, copy, flag):
+def test_sdk_optional_asset_values_are_saved_without_nulls(
+    user, source, kind, copy, flag, assigned_facility
+):
     if kind == "corporation":
         user.user_permissions.add(Permission.objects.get(codename="use_corporation_data"))
         source.kind, source.owner_id = kind, 98000001
@@ -34,7 +36,7 @@ def test_sdk_optional_asset_values_are_saved_without_nulls(user, source, kind, c
         item_id=42,
         type_id=34,
         quantity=5,
-        location_id=60000001,
+        location_id=assigned_facility.structure_id,
         is_blueprint_copy=copy,
         location_flag=flag,
     )

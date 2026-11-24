@@ -28,6 +28,7 @@ def plan_views(snapshot, steps):
             "name": row.get("name") or str(tid),
             "required": row.get("required", 0),
             "stock": row.get("from_stock", 0),
+            "stock_locations": row.get("stock_locations", []),
             "missing": row.get("missing", 0),
             "output": row.get("output", 0),
             "kind": kind,

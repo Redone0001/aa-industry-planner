@@ -4,6 +4,7 @@ from eve_sde.models import ItemType
 
 from .industry import bonus_family_choices, family_activity
 from .models import (
+    ActivityStorageLocation,
     Facility,
     FacilityAssignment,
     FacilityService,
@@ -82,7 +83,7 @@ class PlanForm(StyledFormMixin, forms.Form):
     use_inventory = forms.BooleanField(
         required=False,
         initial=True,
-        help_text="Use all included inventory sources. Stock is allocated within this plan; it is not reserved across separate plans.",
+        help_text="Use included stock at each job’s assigned structure and activity storage. Other locations are excluded; stock is not reserved across separate plans.",
     )
 
 
@@ -151,9 +152,18 @@ def blueprint_rows(production):
 class ManualStockForm(StyledFormMixin, forms.ModelForm):
     item_type = TypeField()
 
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["facility"].queryset = Facility.visible_to(user)
+        self.fields["facility"].required = True
+        self.fields[
+            "facility"
+        ].help_text = "Physical stock location. Production uses it only when assigned for industry or storage."
+
     class Meta:
         model = ManualStock
-        fields = ["item_type", "quantity", "location"]
+        fields = ["item_type", "quantity", "facility", "location"]
+        labels = {"facility": "Structure", "location": "Hangar / label (optional)"}
 
 
 class PolicyForm(StyledFormMixin, forms.ModelForm):
@@ -220,6 +230,20 @@ class AssignmentForm(StyledFormMixin, forms.ModelForm):
             "bonus_family": AssignmentScopeSelect(attrs={"data-assignment-family": "true"}),
             "service": AssignmentScopeSelect(attrs={"data-assignment-service": "true"}),
         }
+
+
+class StorageLocationForm(StyledFormMixin, forms.ModelForm):
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["facility"].queryset = Facility.visible_to(user)
+        self.fields[
+            "facility"
+        ].help_text = "Allows stock here to supply this activity. An industry service is not required at a storage structure."
+
+    class Meta:
+        model = ActivityStorageLocation
+        fields = ["activity", "facility"]
+        labels = {"facility": "Storage structure"}
 
 
 class PreferencesForm(StyledFormMixin, forms.ModelForm):

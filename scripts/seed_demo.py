@@ -157,7 +157,7 @@ for activity, base in [("manufacturing", Decimal(".028")), ("reaction", Decimal(
         )
 source = InventorySource.objects.create(user=user, kind="manual", name="Declared demo hangar")
 ManualStock.objects.create(
-    source=source, item_type=types[5], quantity=15000, location="Meridian Campus"
+    source=source, item_type=types[5], quantity=15000, facility=facility, location="Meridian Campus"
 )
 production = create_plan(user, types[1].pk, 100, "November drone restock")
 step = production.steps.get(item_type=types[4])

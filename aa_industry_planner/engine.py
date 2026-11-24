@@ -43,6 +43,87 @@ class ProductionContext:
     reaction_hours: int | None = None
     bonus_source: str = "Unassigned facility"
     facility_fit: dict | None = None
+    stock_location_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class StockScope:
+    location_ids: tuple[int, ...] = ()
+    destination_id: int | None = None
+    activity: str = ""
+
+
+def stock_requirement(quantity, scope, consumer_id=None):
+    return dict(
+        quantity=quantity,
+        location_ids=list(scope.location_ids),
+        destination_id=scope.destination_id,
+        activity=scope.activity,
+        consumer_id=consumer_id,
+        from_stock=0,
+        allocations={},
+    )
+
+
+def allocate_location_stock(requirements, available):
+    """Maximum stock coverage with shared storage capacities; each pile is used once."""
+    locations = sorted(loc for loc, quantity in available.items() if quantity > 0)
+    location_set = set(locations)
+    sink = 1 + len(requirements) + len(locations)
+    edges = [[] for _ in range(sink + 1)]
+
+    def edge(start, end, capacity):
+        forward = [end, capacity, len(edges[end])]
+        backward = [start, 0, len(edges[start])]
+        edges[start].append(forward)
+        edges[end].append(backward)
+        return forward
+
+    location_nodes = {loc: 1 + len(requirements) + i for i, loc in enumerate(locations)}
+    links = []
+    for index, requirement in enumerate(requirements, 1):
+        edge(0, index, requirement["quantity"])
+        # Prefer stock already at the destination before drawing from storage.
+        eligible = sorted(
+            set(requirement["location_ids"]) & location_set,
+            key=lambda loc: (loc != requirement["destination_id"], loc),
+        )
+        for loc in eligible:
+            link = edge(index, location_nodes[loc], requirement["quantity"])
+            links.append((requirement, loc, link))
+    for loc, node in location_nodes.items():
+        edge(node, sink, available[loc])
+    while True:
+        previous = {0: None}
+        queue = deque([0])
+        while queue and sink not in previous:
+            start = queue.popleft()
+            for index, (end, capacity, _) in enumerate(edges[start]):
+                if capacity and end not in previous:
+                    previous[end] = (start, index)
+                    queue.append(end)
+        if sink not in previous:
+            break
+        amount, end = None, sink
+        while end:
+            start, index = previous[end]
+            amount = (
+                edges[start][index][1] if amount is None else min(amount, edges[start][index][1])
+            )
+            end = start
+        end = sink
+        while end:
+            start, index = previous[end]
+            link = edges[start][index]
+            link[1] -= amount
+            edges[end][link[2]][1] += amount
+            end = start
+    for requirement, loc, link in links:
+        allocated = requirement["quantity"] - link[1]
+        if allocated:
+            requirement["allocations"][loc] = allocated
+            requirement["from_stock"] += allocated
+    return sum(requirement["from_stock"] for requirement in requirements)
 
 
 @dataclass
@@ -60,6 +141,7 @@ class Node:
     estimated_job_cost: Decimal | None = None
     estimated_seconds: int = 0
     warnings: list[str] = field(default_factory=list)
+    inventory_requirements: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -74,7 +156,18 @@ def material_quantity(base, runs, efficiency):
     return max(runs, int(adjusted.to_integral_value(rounding=ROUND_CEILING)))
 
 
-def plan(product_id, quantity, recipe_for, context_for, stock=None, buy=None, prices=None):
+def plan(
+    product_id,
+    quantity,
+    recipe_for,
+    context_for,
+    stock=None,
+    buy=None,
+    prices=None,
+    *,
+    stock_by_location=None,
+    root_stock_scope=None,
+):
     if not 0 < quantity <= 10**12:
         raise PlanningError("Quantity must be between 1 and 1,000,000,000,000.")
     stock, buy, prices = stock or {}, set(buy or ()), prices or {}
@@ -120,10 +213,20 @@ def plan(product_id, quantity, recipe_for, context_for, stock=None, buy=None, pr
                 queue.append(child)
 
     demand, nodes = defaultdict(int, {product_id: quantity}), {}
+    requirements = defaultdict(list)
+    if stock_by_location is not None:
+        requirements[product_id].append(
+            stock_requirement(quantity, root_stock_scope or StockScope())
+        )
     for type_id in order:
         required = demand[type_id]
-        allocated = min(required, max(0, stock.get(type_id, 0)))
+        allocated = (
+            allocate_location_stock(requirements[type_id], stock_by_location.get(type_id, {}))
+            if stock_by_location is not None
+            else min(required, max(0, stock.get(type_id, 0)))
+        )
         node = Node(type_id, required, allocated, required - allocated, recipe=recipes[type_id])
+        node.inventory_requirements = requirements[type_id]
         nodes[type_id] = node
         if not node.missing or not node.recipe:
             continue
@@ -160,6 +263,14 @@ def plan(product_id, quantity, recipe_for, context_for, stock=None, buy=None, pr
             amount = sum(material_quantity(base, size, efficiency) for size in node.batches)
             node.materials[material] = amount
             demand[material] += amount
+            if stock_by_location is not None:
+                requirements[material].append(
+                    stock_requirement(
+                        amount,
+                        StockScope(ctx.stock_location_ids, ctx.structure_id, recipe.activity),
+                        type_id,
+                    )
+                )
         node.estimated_seconds = int(
             (per_run * node.runs).to_integral_value(rounding=ROUND_CEILING)
         )

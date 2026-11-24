@@ -22,11 +22,13 @@ from .forms import (
     PlanSettingsForm,
     PolicyForm,
     PreferencesForm,
+    StorageLocationForm,
     WatchForm,
     blueprint_rows,
 )
 from .industry import BONUS_SCOPE_OFFSET
 from .models import (
+    ActivityStorageLocation,
     Facility,
     FacilityAssignment,
     IndustryJob,
@@ -182,6 +184,8 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         steps=steps,
         tree=tree,
         dependency_graph=dependency_graph,
+        legacy_inventory_scope=snapshot.get("inventory_used", True)
+        and "inventory_locations" not in snapshot,
         inputs=inputs,
         candidate_jobs=visible_jobs[:300],
         settings_form=settings_form,
@@ -271,17 +275,29 @@ def archive_plan(request, pk):
 
 @planner_access
 def inventory(request):
-    form = ManualStockForm(request.POST or None)
+    stock_id = (
+        request.POST.get("stock_id") if request.method == "POST" else request.GET.get("edit_stock")
+    )
+    if stock_id and not str(stock_id).isdigit():
+        raise Http404
+    editing_stock = (
+        get_object_or_404(ManualStock, pk=stock_id, source__user=request.user) if stock_id else None
+    )
+    form = ManualStockForm(request.POST or None, user=request.user, instance=editing_stock)
     if request.method == "POST" and form.is_valid():
         source, _ = InventorySource.objects.get_or_create(
             user=request.user, kind="manual", owner_id=0, defaults={"name": "Declared inventory"}
         )
-        ManualStock.objects.update_or_create(
-            source=source,
-            item_type=form.cleaned_data["item_type"],
-            location=form.cleaned_data["location"],
-            defaults={"quantity": form.cleaned_data["quantity"]},
-        )
+        with transaction.atomic():
+            saved, _ = ManualStock.objects.update_or_create(
+                source=editing_stock.source if editing_stock else source,
+                item_type=form.cleaned_data["item_type"],
+                facility=form.cleaned_data["facility"],
+                location=form.cleaned_data["location"],
+                defaults={"quantity": form.cleaned_data["quantity"]},
+            )
+            if editing_stock and editing_stock.pk != saved.pk:
+                editing_stock.delete()
         evaluate_watches(request.user)
         messages.success(request, "Declared inventory updated.")
         return redirect("aa_industry_planner:inventory")
@@ -311,8 +327,11 @@ def inventory(request):
         request,
         "inventory",
         form=form,
+        editing_stock=editing_stock,
         rows=rows,
-        manual=ManualStock.objects.filter(source__user=request.user).select_related("item_type"),
+        manual=ManualStock.objects.filter(source__user=request.user).select_related(
+            "item_type", "facility"
+        ),
         **source_overview(request.user),
     )
 
@@ -566,8 +585,21 @@ def configuration(request):
     assignment_form = AssignmentForm(
         request.POST if request.POST.get("form") == "assignment" else None, user=request.user
     )
+    storage_form = StorageLocationForm(
+        request.POST if request.POST.get("form") == "storage" else None,
+        user=request.user,
+        prefix="storage",
+    )
     if request.method == "POST":
         action = request.POST.get("form")
+        if action == "storage" and storage_form.is_valid():
+            ActivityStorageLocation.objects.get_or_create(
+                user=request.user,
+                activity=storage_form.cleaned_data["activity"],
+                facility=storage_form.cleaned_data["facility"],
+            )
+            evaluate_watches(request.user)
+            return redirect("aa_industry_planner:configuration")
         if action == "preferences" and prefs_form.is_valid():
             prefs_form.save()
             return redirect("aa_industry_planner:configuration")
@@ -591,6 +623,7 @@ def configuration(request):
                     "item_group": None,
                 },
             )
+            evaluate_watches(request.user)
             return redirect("aa_industry_planner:configuration")
     return page(
         request,
@@ -598,6 +631,10 @@ def configuration(request):
         prefs_form=prefs_form,
         policy_form=policy_form,
         assignment_form=assignment_form,
+        storage_form=storage_form,
+        storage_locations=ActivityStorageLocation.objects.filter(user=request.user).select_related(
+            "facility"
+        ),
         policies=ItemPolicy.objects.filter(user=request.user).select_related(
             "item_type", "blueprint_type"
         ),
@@ -619,6 +656,15 @@ def delete_policy(request, pk):
 @require_POST
 def delete_assignment(request, pk):
     get_object_or_404(FacilityAssignment, pk=pk, user=request.user).delete()
+    evaluate_watches(request.user)
+    return redirect("aa_industry_planner:configuration")
+
+
+@planner_access
+@require_POST
+def delete_storage_location(request, pk):
+    get_object_or_404(ActivityStorageLocation, pk=pk, user=request.user).delete()
+    evaluate_watches(request.user)
     return redirect("aa_industry_planner:configuration")
 
 

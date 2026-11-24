@@ -87,12 +87,17 @@ def test_type_search_respects_active_modeltranslation(user, client, types):
     assert data["results"][0]["name"] == "Produit final"
 
 
-def test_inventory_post_uses_absolute_quantity(user, client, types):
+def test_inventory_post_uses_absolute_quantity(user, client, types, assigned_facility):
     client.force_login(user)
     for quantity in [5, 8]:
         response = client.post(
             reverse("aa_industry_planner:inventory"),
-            {"item_type": "1 · Final product", "quantity": quantity, "location": "Hangar"},
+            {
+                "item_type": "1 · Final product",
+                "quantity": quantity,
+                "location": "Hangar",
+                "facility": assigned_facility.pk,
+            },
         )
         assert response.status_code == 302
     assert ManualStock.objects.count() == 1

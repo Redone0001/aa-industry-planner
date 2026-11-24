@@ -25,6 +25,7 @@ urlpatterns = [
     path("configuration/", views.configuration, name="configuration"),
     path("policies/<int:pk>/delete/", views.delete_policy, name="delete_policy"),
     path("assignments/<int:pk>/delete/", views.delete_assignment, name="delete_assignment"),
+    path("storage/<int:pk>/delete/", views.delete_storage_location, name="delete_storage_location"),
     path("notifications/", views.notifications, name="notifications"),
     path("notifications/read/", views.mark_read, name="mark_read"),
     path("facilities/", views.facilities, name="facilities"),

@@ -99,7 +99,10 @@
     const heading = element("div", "aip-section-heading");
     heading.append(element("h3", "h6", node.name), close);
     inspector.append(heading, element("p", "mb-2", `${node.kind_label} · ${number(node.required)} needed across this plan`));
-    if (node.stock) inspector.append(element("p", "mb-2", `${number(node.stock)} from stock`));
+    if (node.stock) {
+      inspector.append(element("p", "mb-2", `${number(node.stock)} from stock`));
+      (node.stock_locations || []).forEach(allocation => inspector.append(element("p", "small mb-1", `${number(allocation.quantity)} at ${allocation.name}${allocation.transfer ? " · transport to the assigned industry location" : ""}`)));
+    }
     if (node.output) inspector.append(element("p", "mb-2", `${number(node.output)} to make · ${number(node.runs)} runs`));
     if (node.kind === "buy") inspector.append(element("p", "mb-2", `${number(node.missing)} to buy / import`));
     if (node.facility) inspector.append(element("p", "small text-body-secondary", node.facility + (node.system ? ` · ${node.system}` : "")));

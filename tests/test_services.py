@@ -59,10 +59,12 @@ def test_real_sde_plan_and_material_merging(user, recipes):
     assert snapshot["nodes"]["1"]["name"] == "Final product"
 
 
-def test_manual_stock_is_scoped_and_can_be_excluded(user, other_user, types):
+def test_manual_stock_is_scoped_and_can_be_excluded(user, other_user, types, assigned_facility):
     own = InventorySource.objects.create(user=user, kind="manual", name="Own")
     other = InventorySource.objects.create(user=other_user, kind="manual", name="Other")
-    ManualStock.objects.create(source=own, item_type=types[1], quantity=7)
+    ManualStock.objects.create(
+        source=own, item_type=types[1], quantity=7, facility=assigned_facility
+    )
     ManualStock.objects.create(source=other, item_type=types[1], quantity=99)
     assert inventory_totals(user) == {1: 7}
     own.include_in_planning = False
@@ -70,8 +72,10 @@ def test_manual_stock_is_scoped_and_can_be_excluded(user, other_user, types):
     assert inventory_totals(user) == {}
 
 
-def test_revoked_character_ownership_hides_assets(user, source):
-    Asset.objects.create(source=source, item_id=42, type_id=1, quantity=8, location_id=60000001)
+def test_revoked_character_ownership_hides_assets(user, source, assigned_facility):
+    Asset.objects.create(
+        source=source, item_id=42, type_id=1, quantity=8, location_id=assigned_facility.structure_id
+    )
     assert inventory_totals(user) == {1: 8}
     CharacterOwnership.objects.filter(user=user).delete()
     assert inventory_totals(user) == {}
@@ -158,9 +162,13 @@ def test_watch_updates_one_task_and_input_is_not_produced(user, recipes):
     assert not ProductionPlan.objects.exists()
 
 
-def test_watch_plan_uses_net_shortage_without_subtracting_stock_twice(user, recipes):
+def test_watch_plan_uses_net_shortage_without_subtracting_stock_twice(
+    user, recipes, assigned_facility
+):
     source = InventorySource.objects.create(user=user, kind="manual", name="Manual")
-    ManualStock.objects.create(source=source, item_type=recipes[1], quantity=4)
+    ManualStock.objects.create(
+        source=source, item_type=recipes[1], quantity=4, facility=assigned_facility
+    )
     watch = InventoryWatch.objects.create(user=user, item_type=recipes[1], minimum=10)
     evaluate_watches(user)
     production = plan_replenishment(user, watch.task.pk)
@@ -174,7 +182,7 @@ def test_watch_plan_uses_net_shortage_without_subtracting_stock_twice(user, reci
         plan_replenishment(user, watch.task.pk)
 
 
-def test_running_jobs_cover_watch_deficit(user, source, recipes):
+def test_running_jobs_cover_watch_deficit(user, source, recipes, assigned_facility):
     watch = InventoryWatch.objects.create(user=user, item_type=recipes[1], minimum=10)
     make_job(user, source, runs=7)
     evaluate_watches(user)

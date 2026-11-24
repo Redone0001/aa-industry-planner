@@ -51,11 +51,15 @@ def test_graph_places_dependencies_to_the_right_and_cards_do_not_overlap(user, r
     assert nodes[5]["kind"] == "buy"
 
 
-def test_fully_stocked_product_has_one_stock_node_without_unused_dependencies(user, recipes):
+def test_fully_stocked_product_has_one_stock_node_without_unused_dependencies(
+    user, recipes, assigned_facility
+):
     from aa_industry_planner.models import ManualStock
 
     source = InventorySource.objects.create(user=user, kind="manual", name="Stock")
-    ManualStock.objects.create(source=source, item_type=recipes[1], quantity=10)
+    ManualStock.objects.create(
+        source=source, item_type=recipes[1], quantity=10, facility=assigned_facility
+    )
     _, snapshot = calculate(user, 1, 10)
     _, graph = plan_views(snapshot, {})
     assert len(graph["nodes"]) == 1

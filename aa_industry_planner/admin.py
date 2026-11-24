@@ -7,6 +7,7 @@ from eve_sde.models import ItemType
 
 from .industry import FitError, catalog, type_choices
 from .models import (
+    ActivityStorageLocation,
     AdjustedPrice,
     Facility,
     FacilityAssignment,
@@ -263,6 +264,7 @@ class JobAdmin(admin.ModelAdmin):
 
 
 for model in [
+    ActivityStorageLocation,
     FacilityAssignment,
     ItemPolicy,
     InventoryWatch,

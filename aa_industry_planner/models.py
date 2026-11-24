@@ -267,6 +267,24 @@ class FacilityAssignment(models.Model):
         return "All other products"
 
 
+class ActivityStorageLocation(models.Model):
+    user = models.ForeignKey(
+        USER, on_delete=models.CASCADE, related_name="industry_storage_locations"
+    )
+    activity = models.CharField(max_length=20, choices=Activity.choices)
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "activity", "facility"], name="aip_unique_activity_storage"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_activity_display()} storage · {self.facility}"
+
+
 class SystemCostIndex(models.Model):
     solar_system = models.ForeignKey("eve_sde.SolarSystem", on_delete=models.CASCADE)
     activity = models.CharField(max_length=40)
@@ -375,12 +393,14 @@ class ManualStock(models.Model):
     )
     item_type = models.ForeignKey(TYPE, on_delete=models.PROTECT)
     quantity = models.PositiveBigIntegerField(default=0)
+    facility = models.ForeignKey(Facility, null=True, blank=True, on_delete=models.SET_NULL)
     location = models.CharField(max_length=200, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["source", "item_type", "location"], name="aip_unique_manual_stock"
+                fields=["source", "item_type", "facility", "location"],
+                name="aip_unique_manual_stock",
             )
         ]
 
