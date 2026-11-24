@@ -19,7 +19,7 @@ function browser({failSave=false, failCopy=false}={}) {
   const section={querySelector:selector=>selector==='[data-multibuy-text]'?textarea:status,querySelectorAll:()=>[row]};
   const buttons=['','unchecked'].map(value=>({dataset:{copyMultibuy:value},closest:()=>section,addEventListener(_,fn){this.click=fn;}}));
   runInNewContext(source,{
-    document:{addEventListener:(event,fn)=>{events[event]=fn;},querySelectorAll:selector=>{
+    document:{querySelector:()=>null,addEventListener:(event,fn)=>{events[event]=fn;},querySelectorAll:selector=>{
       if(selector==='[data-checklist-save]')return[save];
       if(selector==='[data-checklist]')return[form];
       if(selector==='[data-copy-multibuy]')return buttons;
@@ -71,4 +71,83 @@ test('clipboard denial exposes exactly the requested text and preserves full-lis
   assert.equal(ui.textarea.selected,true);
   await ui.buttons[0].click();
   assert.equal(ui.textarea.value,'Isogen 1200000\nZydrine 2');
+});
+
+function filteredBrowser() {
+  const events={}, windowEvents={}, select={value:'all',focus(){this.focused=true;},addEventListener(type,fn){this[type]=fn;}};
+  const counter={}, empty={}, controls={}, reset={addEventListener(_,fn){this.click=fn;}};
+  const steps = [
+    {id:'step-1',dataset:{progress:'0',state:'ready'}},
+    {id:'step-2',dataset:{progress:'0',state:'active'}},
+    {id:'step-3',dataset:{progress:'100',state:'complete'}},
+    {id:'step-4',dataset:{progress:'0',state:'blocked'}},
+  ];
+  const reviewed = new Set(['step-3','step-4']);
+  steps.forEach(step=>{
+    step.classList={contains:()=>reviewed.has(step.id),toggle:(_,value)=>value?reviewed.add(step.id):reviewed.delete(step.id)};
+    step.contains=()=>false;
+    step.scrollIntoView=()=>{step.scrolled=true;};
+  });
+  const sequence={querySelectorAll:()=>steps,querySelector:selector=>({
+    '[data-step-filter]':select,'[data-step-filter-count]':counter,'[data-step-filter-empty]':empty,
+    '[data-step-filter-controls]':controls,'[data-step-filter-reset]':reset,
+  })[selector]};
+  const feedback={};
+  const form={action:'/check/4',dataset:{itemId:'4'},querySelector:()=>feedback};
+  const checkbox={checked:false,closest:selector=>selector==='form'?form:checkbox};
+  const location={origin:'https://example.test',pathname:'/industry/plans/1/',search:'',hash:'',href:'https://example.test/industry/plans/1/'};
+  runInNewContext(source,{
+    document:{querySelector:()=>sequence,querySelectorAll:selector=>selector.includes('input[name')?[checkbox]:selector.includes('data-review-item')?[steps[3]]:[],addEventListener:(name,fn)=>{events[name]=fn;}},
+    window:{addEventListener:(name,fn)=>{windowEvents[name]=fn;}},
+    location,URL,
+    FormData:class{},fetch:async()=>({ok:true,json:async()=>({checked:checkbox.checked})}),
+  });
+  return {steps,select,counter,empty,controls,reset,checkbox,location,
+    filter(value){select.value=value;select.change();},
+    visible(){return steps.filter(step=>!step.hidden).map(step=>step.id);},
+    changeReminder:()=>events.change({target:checkbox}),
+    follow(hash){events.click({target:{closest:()=>({href:location.href+hash})}});},
+    hash(hash){location.hash=hash;windowEvents.hashchange();},
+  };
+}
+
+test('step filters distinguish unfinished output, ready inputs and checked reminders',()=>{
+  const ui=filteredBrowser();
+  assert.deepEqual(ui.visible(),['step-1','step-2','step-3','step-4']);
+  assert.equal(ui.controls.hidden,false);
+  ui.filter('remaining');
+  assert.deepEqual(ui.visible(),['step-1','step-2','step-4']);
+  ui.filter('ready');
+  assert.deepEqual(ui.visible(),['step-1']);
+  assert.equal(ui.counter.textContent,'1 of 4 steps · inputs first');
+  ui.filter('checked');
+  assert.deepEqual(ui.visible(),['step-3','step-4']);
+});
+
+test('unchecking the last reviewed step updates filtered results and exposes a reset',async()=>{
+  const ui=filteredBrowser();
+  ui.steps[2].classList.toggle('is-reviewed',false);
+  ui.filter('checked');
+  assert.deepEqual(ui.visible(),['step-4']);
+  await ui.changeReminder();
+  assert.deepEqual(ui.visible(),[]);
+  assert.equal(ui.empty.hidden,false);
+  assert.equal(ui.counter.textContent,'0 of 4 steps · inputs first');
+  ui.reset.click();
+  assert.equal(ui.select.value,'all');
+  assert.equal(ui.visible().length,4);
+  assert.equal(ui.empty.hidden,true);
+});
+
+test('links and hash navigation reveal steps hidden by the current filter',()=>{
+  const ui=filteredBrowser();
+  ui.filter('ready');
+  ui.follow('#step-2');
+  assert.equal(ui.select.value,'all');
+  assert.equal(ui.steps[1].hidden,false);
+  ui.filter('checked');
+  ui.hash('#step-1');
+  assert.equal(ui.select.value,'all');
+  assert.equal(ui.steps[0].hidden,false);
+  assert.equal(ui.steps[0].scrolled,true);
 });

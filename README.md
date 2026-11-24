@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.13 adds EVE Multibuy copying, persistent item reminders, availability colours across the graph/tree/steps, location-aware readiness and separate ongoing/completed job coverage. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.14 adds production-step filters for unfinished output, ready inputs and checked reminders, alongside the Multibuy list, availability colours and ongoing/completed job coverage. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.13 requires migration `0007` for reminders, ongoing quantities and explicit job unlink preferences; it adds no dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.14 adds no migrations or dependencies. Migration `0007` from v0.1.13 remains required for reminders, ongoing quantities and explicit job unlink preferences; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.13" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.14" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -174,6 +174,8 @@ Saved calculations retain their original snapshot. Old calculations that used po
 The graph, tree and production sequence share availability colours: **solid green** for stock/completed output, **blue** for ready to craft, **purple** for active/paused jobs, **amber** for buy/import and **grey** for missing inputs. A **dashed border** identifies a shared input while retaining its availability colour. Activity names still distinguish manufacturing and reactions.
 
 Readiness uses the latest authorized, included inventory at each step’s saved production/storage locations, with a visible online production service. It requires all remaining input materials, accounts for completed runs and per-job material rounding, and allocates shared stock once in production order. Storage supplies are marked for hauling. Running or undelivered job output is never assumed to be available stock; downstream steps become ready after delivery and the next asset import. Readiness is a view-time check, not a reservation or live EVE access/skills check. Historic plans without saved location scopes need a refresh.
+
+**Production sequence → Show steps** filters the numbered steps: **All steps**, **To complete** (job completion below 100%, including ongoing jobs), **Inputs ready** (blue ready-to-craft steps), or **Checked reminders** (the saved Reviewed checkboxes, independent of job completion). The visible count and empty state update immediately; saving a checkbox updates the checked filter as well. Filters retain the original step numbers and production order. Following a graph, tree or dependency link to a hidden step switches back to All steps so the target is visible.
 
 **Reviewed** checkboxes are private, persistent reminders for every item, available in the tree, graph inspector, production steps and buy list. Matching entries stay synchronized. Checks survive plan refreshes, visually cross out the item name and do not change stock, quantities, readiness or job completion. Archived plans display the saved reminders without editing them.
 

@@ -1,5 +1,53 @@
 (() => {
   "use strict";
+  let applyStepFilter = () => {};
+  const sequence = document.querySelector("[data-step-sequence]");
+  if (sequence) {
+    const steps = [...sequence.querySelectorAll(".aip-step")];
+    const select = sequence.querySelector("[data-step-filter]");
+    const count = sequence.querySelector("[data-step-filter-count]");
+    const empty = sequence.querySelector("[data-step-filter-empty]");
+    const filters = {
+      all: () => true,
+      remaining: step => Number(step.dataset.progress) < 100,
+      ready: step => step.dataset.state === "ready",
+      checked: step => step.classList.contains("is-reviewed"),
+    };
+    applyStepFilter = () => {
+      const matches = filters[select.value] || filters.all;
+      let shown = 0;
+      steps.forEach(step => {
+        step.hidden = !matches(step);
+        if (!step.hidden) shown++;
+        else if (step.contains(document.activeElement)) select.focus({preventScroll: true});
+      });
+      count.textContent = `${shown} of ${steps.length} steps · inputs first`;
+      empty.hidden = !steps.length || shown > 0;
+    };
+    const revealStep = hash => {
+      const step = steps.find(item => `#${item.id}` === hash);
+      if (step?.hidden) { select.value = "all"; applyStepFilter(); }
+      return step;
+    };
+    select.addEventListener("change", applyStepFilter);
+    sequence.querySelector("[data-step-filter-reset]").addEventListener("click", () => {
+      select.value = "all"; applyStepFilter(); select.focus();
+    });
+    document.addEventListener("click", event => {
+      if (event.defaultPrevented || event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target.closest("a[href]");
+      if (!link) return;
+      const url = new URL(link.href, location.href);
+      if (url.origin === location.origin && url.pathname === location.pathname && url.search === location.search) revealStep(url.hash);
+    });
+    window.addEventListener("hashchange", () => {
+      const step = revealStep(location.hash);
+      if (step) step.scrollIntoView({block: "start"});
+    });
+    sequence.querySelector("[data-step-filter-controls]").hidden = !steps.length;
+    applyStepFilter();
+    revealStep(location.hash);
+  }
   document.addEventListener("change", async event => {
     const checkbox = event.target.closest('[data-checklist] input[name="checked"]');
     if (!checkbox) return;
@@ -18,6 +66,7 @@
       controls.forEach(input => { input.checked = data.checked; });
       document.querySelectorAll(`[data-review-item="${id}"]`).forEach(item => item.classList.toggle("is-reviewed", data.checked));
       feedback.textContent = "Saved";
+      applyStepFilter();
     } catch (_) {
       controls.forEach(input => { input.checked = !checked; });
       feedback.textContent = "Could not save. Try again.";
