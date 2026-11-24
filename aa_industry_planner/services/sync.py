@@ -53,11 +53,15 @@ def validate_source(source, api):
 
 def sync_source(source, api=None):
     api = api or ESI()
+    source._sync_stage = "authorization"
     validate_source(source, api)
     # Fetch every page of both datasets before replacing any stored asset snapshot.
+    source._sync_stage = "fetching assets"
     assets = api.assets(source)
+    source._sync_stage = "fetching jobs"
     jobs = api.jobs(source)
     timestamp = timezone.now()
+    source._sync_stage = "saving assets and jobs"
     with transaction.atomic():
         InventorySource.objects.select_for_update().get(pk=source.pk)
         Asset.objects.filter(source=source).delete()
@@ -69,8 +73,9 @@ def sync_source(source, api=None):
                     type_id=a["type_id"],
                     quantity=max(0, a["quantity"]),
                     location_id=a["location_id"],
-                    location_flag=a.get("location_flag", ""),
-                    is_blueprint_copy=a.get("is_blueprint_copy", False),
+                    # The SDK represents omitted optional properties as None.
+                    location_flag=a.get("location_flag") or "",
+                    is_blueprint_copy=bool(a.get("is_blueprint_copy")),
                 )
                 for a in assets
             ],
@@ -125,12 +130,15 @@ def sync_source(source, api=None):
         InventorySource.objects.filter(pk=source.pk).update(
             last_assets_sync=timestamp, last_jobs_sync=timestamp, last_error=""
         )
+    source._sync_stage = "updating plan progress"
     reconcile_jobs(source.user)
     from .watches import evaluate_watches
 
+    source._sync_stage = "evaluating inventory targets"
     evaluate_watches(source.user)
     from aa_industry_planner.tasks import resolve_entity_names
 
+    source._sync_stage = "queueing name lookup"
     resolve_entity_names.delay(source.user_id)
 
 

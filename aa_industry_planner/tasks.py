@@ -8,9 +8,23 @@ from django.db import transaction
 from django.utils import timezone
 from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 
+from . import __version__
 from .models import IndustryJob, InventorySource, Notification
 
 logger = logging.getLogger(__name__)
+
+
+def sync_failure_message(exc, stage):
+    if isinstance(exc, PermissionDenied):
+        return str(exc)
+    # Exception bodies/headers can include credentials or private response data.
+    # Show only a fixed stage, exception class, HTTP status and worker version.
+    status = getattr(exc, "status_code", None)
+    http = f", HTTP {status}" if type(status) is int and 100 <= status <= 599 else ""
+    return (
+        f"Import failed during {stage} ({type(exc).__name__}{http}; worker {__version__}). "
+        "Check the worker traceback for details."
+    )
 
 
 @shared_task(bind=True, max_retries=4)
@@ -21,6 +35,7 @@ def refresh_source(self, source_id):
     key = f"aip:sync:{source_id}"
     if not cache.add(key, True, timeout=1800):
         return
+    source = None
     try:
         source = InventorySource.objects.select_related("user", "token").get(
             pk=source_id, enabled=True
@@ -33,12 +48,17 @@ def refresh_source(self, source_id):
     except (ESIBucketLimitException, ESIErrorLimitException) as exc:
         raise self.retry(exc=exc, countdown=max(5, exc.reset)) from exc
     except Exception as exc:
-        # Never put raw HTTP exceptions (which can contain request details) into the UI.
-        message = (
-            str(exc)
-            if isinstance(exc, PermissionDenied)
-            else "ESI refresh failed. Previous data was retained. Check worker logs or reconnect the source."
+        stage = getattr(source, "_sync_stage", "loading source")
+        message = sync_failure_message(exc, stage)
+        logger.warning(
+            "Industry source %s failed during %s (%s; worker %s)",
+            source_id,
+            stage,
+            type(exc).__name__,
+            __version__,
         )
+        if source is None:
+            raise self.retry(exc=exc, countdown=min(900, 60 * 2**self.request.retries)) from exc
         InventorySource.objects.filter(pk=source_id).update(last_error=message[:250])
         if isinstance(exc, PermissionDenied):
             InventorySource.objects.filter(pk=source_id).update(enabled=False)
@@ -49,7 +69,6 @@ def refresh_source(self, source_id):
             "Inventory sync needs attention",
             f"{source.name}: {message}",
         )
-        logger.warning("Industry source %s refresh failed (%s)", source_id, type(exc).__name__)
         if not isinstance(exc, PermissionDenied):
             raise self.retry(exc=exc, countdown=min(900, 60 * 2**self.request.retries)) from exc
     finally:

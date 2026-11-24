@@ -80,6 +80,8 @@
 .aip-actions .form-select { width: auto; min-width: 9rem; }
 .aip-source { padding-block: 1rem; border-bottom: 1px solid var(--bs-border-color); }
 .aip-source:last-child { border-bottom: 0; }
+.aip-source > div:first-child { min-width: 0; }
+.aip-sync-error { margin: .5rem 0 0; padding: .5rem .75rem; font-size: .85rem; overflow-wrap: anywhere; }
 .aip-note { margin-block: 1.25rem; }
 .aip .number { text-align: right; font-variant-numeric: tabular-nums; }
 .aip .table th { white-space: nowrap; }
