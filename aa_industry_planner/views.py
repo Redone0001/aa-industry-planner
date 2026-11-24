@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from eve_sde.models import ItemType
 
+from . import __version__
 from .engine import PlanningError
 from .forms import (
     AssignmentForm,
@@ -40,6 +41,7 @@ from .models import (
 from .services.inventory import authorized_sources, inventory_totals
 from .services.jobs import allocate_job, update_progress
 from .services.planning import create_plan
+from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
 
 
@@ -50,6 +52,7 @@ def planner_access(view):
 
 
 def page(request, template, **context):
+    context["industry_version"] = __version__
     context["unread_count"] = Notification.objects.filter(
         user=request.user, read_at__isnull=True
     ).count()
@@ -82,20 +85,7 @@ def dashboard(request):
 
 @planner_access
 def type_search(request):
-    query = request.GET.get("q", "").strip()[:100]
-    items = ItemType.objects.none()
-    if len(query) >= 2:
-        items = ItemType.objects.filter(name__icontains=query).order_by("name")
-        if query.isdigit():
-            items = ItemType.objects.filter(pk=int(query))
-    return JsonResponse(
-        {
-            "results": [
-                {"id": item.pk, "name": str(item.name), "value": f"{item.pk} · {item.name}"}
-                for item in items[:30]
-            ]
-        }
-    )
+    return JsonResponse({"results": search_types(request.GET.get("q", ""))})
 
 
 @planner_access

@@ -11,31 +11,129 @@
     if (active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
+  const typeSearchCache = new Map();
   app.querySelectorAll("[data-type-search]").forEach((input, index) => {
-    const list = document.createElement("datalist");
+    const wrapper = document.createElement("div");
+    wrapper.className = "position-relative";
+    input.replaceWith(wrapper);
+    wrapper.append(input);
+    const list = document.createElement("div");
     list.id = `industry-type-options-${index}`;
-    input.setAttribute("list", list.id);
-    input.insertAdjacentElement("afterend", list);
-    let timer, controller;
-    input.addEventListener("input", () => {
+    list.className = "dropdown-menu w-100 p-0";
+    list.style.maxHeight = "18rem";
+    list.style.overflowY = "auto";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", "EVE item suggestions");
+    wrapper.append(list);
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-controls", list.id);
+    input.setAttribute("aria-expanded", "false");
+    let timer, controller, generation = 0, results = [], active = -1;
+    const hide = () => {
+      list.classList.remove("show");
+      input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-activedescendant");
+      active = -1;
+    };
+    const open = () => {
+      list.classList.add("show");
+      input.setAttribute("aria-expanded", "true");
+    };
+    const cancel = () => {
       clearTimeout(timer);
       if (controller) controller.abort();
-      if (input.value.length < 2 || input.value.includes(" · ")) return;
+      ++generation;
+      input.removeAttribute("aria-busy");
+    };
+    const choose = item => {
+      cancel();
+      input.value = item.value;
+      hide();
+      input.dispatchEvent(new Event("change", {bubbles: true}));
+    };
+    const showMessage = message => {
+      results = [];
+      active = -1;
+      const status = document.createElement("div");
+      status.className = "dropdown-item-text py-2";
+      status.setAttribute("role", "status");
+      status.textContent = message;
+      list.replaceChildren(status);
+      open();
+    };
+    const showResults = items => {
+      results = items;
+      active = -1;
+      input.removeAttribute("aria-activedescendant");
+      if (!items.length) { showMessage("No matching items."); return; }
+      list.replaceChildren(...items.map((item, optionIndex) => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.tabIndex = -1;
+        option.id = `${list.id}-${optionIndex}`;
+        option.className = "dropdown-item text-wrap py-2";
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", "false");
+        option.textContent = item.name;
+        // Keep focus in the input so blur cannot close the menu before click.
+        option.addEventListener("mousedown", event => event.preventDefault());
+        option.addEventListener("click", () => choose(item));
+        return option;
+      }));
+      open();
+    };
+    const search = () => {
+      cancel();
+      const requestGeneration = generation;
+      const query = input.value.trim();
+      hide();
+      results = [];
+      list.replaceChildren();
+      if ((!/^\d+$/.test(query) && query.length < 2) || query.includes(" · ")) return;
+      const cached = typeSearchCache.get(query);
+      if (cached && cached.expires > Date.now()) {
+        showResults(cached.results);
+        return;
+      }
+      showMessage("Searching…");
       timer = setTimeout(async () => {
         controller = new AbortController();
+        input.setAttribute("aria-busy", "true");
         try {
-          const response = await fetch(`${app.dataset.typeSearchUrl}?q=${encodeURIComponent(input.value)}`, {signal: controller.signal});
-          if (!response.ok) return;
+          const response = await fetch(`${app.dataset.typeSearchUrl}?q=${encodeURIComponent(query)}`, {signal: controller.signal});
+          if (!response.ok) throw new Error("Search request failed");
           const data = await response.json();
-          list.replaceChildren(...data.results.map(item => {
-            const option = document.createElement("option");
-            option.value = item.value;
-            return option;
-          }));
+          if (requestGeneration !== generation) return;
+          typeSearchCache.set(query, {results: data.results, expires: Date.now() + 300000});
+          if (typeSearchCache.size > 100) typeSearchCache.delete(typeSearchCache.keys().next().value);
+          showResults(data.results);
         } catch (error) {
-          if (error.name !== "AbortError") input.setAttribute("placeholder", "Search unavailable; enter an EVE type ID");
+          if (requestGeneration === generation && error.name !== "AbortError") showMessage("Search unavailable. Try again or enter an EVE type ID.");
+        } finally {
+          if (requestGeneration === generation) input.removeAttribute("aria-busy");
         }
-      }, 200);
+      }, 120);
+    };
+    input.addEventListener("input", search);
+    input.addEventListener("focus", search);
+    input.addEventListener("blur", () => { cancel(); hide(); });
+    input.addEventListener("keydown", event => {
+      if (event.key === "Escape") { event.preventDefault(); cancel(); hide(); return; }
+      if (!results.length || !list.classList.contains("show")) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        choose(results[active < 0 ? 0 : active]);
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        active = event.key === "ArrowDown" ? (active + 1) % results.length : (active <= 0 ? results.length : active) - 1;
+        [...list.children].forEach((option, optionIndex) => {
+          option.classList.toggle("active", optionIndex === active);
+          option.setAttribute("aria-selected", String(optionIndex === active));
+        });
+        input.setAttribute("aria-activedescendant", list.children[active].id);
+        list.children[active].scrollIntoView({block: "nearest"});
+      }
     });
   });
   app.querySelectorAll("[data-expand-tree]").forEach(button => {

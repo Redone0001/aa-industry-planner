@@ -16,6 +16,7 @@ jobs:
       - run: pip install -c constraints/aa-${{ matrix.dependency-profile }}.txt '.[test,discord]'
       - run: ruff check aa_industry_planner tests scripts
       - run: pytest -q
+      - run: node --test tests/type_search.test.cjs
       - run: python -m django check --settings=tests.settings
       - run: python -m django makemigrations aa_industry_planner --check --dry-run --settings=tests.settings
       - run: python -m build

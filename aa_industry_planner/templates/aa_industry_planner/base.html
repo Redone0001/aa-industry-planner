@@ -22,4 +22,4 @@
   <footer class="aip-footer text-body-secondary">{% trans 'Industry Planner' %}<span>{% trans 'Manufacturing & reactions' %}</span></footer>
 </div>
 {% endblock %}
-{% block extra_javascript %}<script src="{% static 'aa_industry_planner/industry.js' %}" defer></script>{% endblock %}
+{% block extra_javascript %}<script src="{% static 'aa_industry_planner/industry.js' %}?v={{ industry_version }}" defer></script>{% endblock %}
