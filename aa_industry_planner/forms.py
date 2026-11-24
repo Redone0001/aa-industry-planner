@@ -249,6 +249,14 @@ class StorageLocationForm(StyledFormMixin, forms.ModelForm):
 class PreferencesForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = UserPreferences
+        labels = {
+            "reaction_runs": "Max reaction runs per job",
+            "reaction_hours": "Max reaction duration (hours)",
+        }
+        help_texts = {
+            "reaction_runs": "A maximum, not a production target. The final job uses only the remaining required runs.",
+            "reaction_hours": "Optional maximum job duration, converted to whole runs. Overrides the run-count limit.",
+        }
         fields = [
             "reaction_runs",
             "reaction_hours",

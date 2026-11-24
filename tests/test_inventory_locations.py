@@ -378,3 +378,30 @@ def test_inventory_location_queries_are_batched_instead_of_per_item(user, source
         totals = inventory_totals(user)
     assert len(totals) == 31
     assert len(large) <= len(small) + 2
+
+
+@pytest.mark.parametrize("physical_id", [60000001, 1000000000001])
+def test_corporate_hangar_divisions_and_nested_containers_resolve_via_office(
+    user, source, sites, physical_id
+):
+    from django.contrib.auth.models import Permission
+
+    user.user_permissions.add(Permission.objects.get(codename="use_corporation_data"))
+    source.kind, source.owner_id = "corporation", 98000001
+    source.save()
+    a, _, _, outside = sites
+    a.structure_id = physical_id
+    a.save()
+    office_id = 70000001
+    asset(source, office_id, 27, 1, physical_id, location_flag="OfficeFolder")
+    for division in range(1, 8):
+        asset(
+            source, 71000000 + division, 5, division, office_id, location_flag=f"CorpSAG{division}"
+        )
+    asset(source, 72000001, 3293, 1, office_id, location_flag="CorpSAG3")
+    asset(source, 72000002, 5, 4, 72000001, location_flag="Unlocked")
+    asset(source, 73000001, 27, 1, outside.structure_id, location_flag="OfficeFolder")
+    asset(source, 73000002, 5, 100, 73000001, location_flag="CorpSAG1")
+    stock = inventory_by_location(user)
+    assert stock[5] == {physical_id: 32}
+    assert 27 not in stock  # Virtual office records are hierarchy, not usable stock.

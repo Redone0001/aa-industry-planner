@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.11 displays installation fees in compact M/B ISK notation, with the full amount available on hover. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.12 treats reaction batch settings as maximum job sizes and produces only the required runs in the final job. Materials, time and installation fees follow the actual runs. Corporation hangar contents resolve through their office to the configured structure; virtual office records are excluded from usable stock. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -12,7 +12,7 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 
 - Select an item and quantity; expand its manufacturing and reaction dependencies down to raw inputs. Refresh saved plans with current configuration; archive/restore them or remove one/all archived plans through a confirmation page.
 - Aggregate shared components before sizing jobs, allocate stock once within a plan at each consuming job’s permitted locations, and show a collapsible dependency tree, a zoomable graph with shared inputs and item inspection, and a numbered production sequence.
-- Set buy/import boundaries and an explicit recipe in item policies. Manufacturing plans default to blueprint ME 10 / TE 20, with plan defaults and individual blueprint overrides editable inside the planner. Reactions ignore ME/TE. Set reaction batch runs or duration and effective character time bonuses in Configuration.
+- Set buy/import boundaries and an explicit recipe in item policies. Manufacturing plans default to blueprint ME 10 / TE 20, with plan defaults and individual blueprint overrides editable inside the planner. Reactions ignore ME/TE. Set maximum reaction runs or duration per job and effective character time bonuses in Configuration.
 - Select structure hulls, installed service modules, online states and industry rigs in Django admin. Derive product-specific material/time/cost multipliers from CCP's SDE, including security and Thukker/reactor rules. Restrict facilities to AA groups and let users assign locations per activity or product group.
 - Snapshot installation estimates using unmodified-material EIV, CCP adjusted prices, the activity's system cost index, facility cost bonuses, facility tax, SCC surcharge and optional Alpha tax.
 - Collect hourly indices for configured systems and retain 90 days, with history charts for authorized facility monitors.
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.11"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.11"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.11"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.11 adds no new migrations or dependencies; migration `0006` from v0.1.10 remains required for storage assignments and declared-stock structures; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.12 adds no new migrations or dependencies; migration `0006` from v0.1.10 remains required for storage assignments and declared-stock structures; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.11" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.12" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -145,6 +145,8 @@ See [the industry bonus research and rules](docs/industry-bonuses.md) for primar
 
 New manufacturing plans assume **ME 10 / TE 20**. Set different defaults on the production form, then edit individual manufacturing blueprints under **Blueprint settings** in the saved plan. Empty per-blueprint ME or TE fields inherit that plan's defaults; `0` is an explicit unresearched value. **Apply blueprint settings & refresh** saves the changes and recalculates. Reactions never receive blueprint ME/TE discounts. Item policies now contain only buy/import and explicit recipe selection.
 
+**Max reaction runs per job** and optional **Max reaction duration (hours)** limit job size; duration takes precedence when set. Neither setting is a production target. For example, 105 required runs with a 100-run cap create jobs of 100 and 5 runs. Existing stock reduces demand first, then required runs round up only to the recipe’s whole-run output. SDE production limits and the 30-day job limit still apply. Materials, time and installation fees use the actual runs in each job, including the smaller final batch. Refresh saved plans to apply this behavior.
+
 **Refresh plan** recalculates the same plan with its saved blueprint settings and the current location assignments, fitted structures/rigs, item policies, character settings, prices, system indices, and stock when inventory is enabled. The plan ID and creation time remain stable; the displayed calculation time updates. Compatible job links and step IDs are retained. Obsolete/incompatible links are released with a warning while the imported EVE jobs remain recorded; refreshing never cancels or modifies in-game jobs. If recalculation fails, the previous plan remains intact. Restore an archived plan before refreshing it.
 
 Archived plans have **Remove** controls on the production list and plan detail. **Remove all archived plans** operates only on the signed-in user's archived plans. A confirmation page precedes permanent deletion. Imported jobs and inventory remain; plan snapshots, overrides, steps and their job links are removed. Active plans cannot be removed through these controls.
@@ -158,6 +160,8 @@ A job can draw existing inputs only from its **assigned production structure** a
 Under **Configuration → Activity storage**, select an activity and a structure, then **Add storage location**. Multiple storage structures are supported, including facilities with no industry services. Storage applies to every job of that activity; inaccessible/inactive facilities are excluded. Stock already at the job location is preferred, and a shared storage pile is allocated at most once within the plan. When storage serves multiple jobs, allocation respects each job’s eligible locations without inventing stock or creating avoidable shortages.
 
 The configured facility’s deployed `structure_id` must match its physical ESI location ID. Assets inside containers are traced through their source’s asset hierarchy to the enclosing configured structure. Unresolved or cyclic container references are excluded. Excluded sources, revoked ownership, inaccessible structures, and blueprint copies remain excluded.
+
+Corporation assets follow the same hierarchy: an item in a division (`CorpSAG1` through `CorpSAG7`) points to its office, whose `OfficeFolder` record points to the physical station or structure. Nested containers are traced through that chain. The virtual office record locates the contents but is not counted as usable inventory. All divisions at an eligible structure are pooled; this version does not select divisions or enforce each job installer’s in-game hangar Take roles. See [CCP’s asset location reference](https://docs.esi.evetech.net/docs/asset_location_id.html) and [corporation role requirements](https://support.eveonline.com/hc/en-us/articles/203217712-Roles-Listing).
 
 **Inventory → Declare inventory** now requires a structure and optionally a hangar/label. Quantities are absolute per item, structure and label. Migration `0006` preserves existing declarations and labels without guessing their physical location: records without a structure do not count until you use **Edit location / quantity** to assign one. The inventory overview shows configured stock; produced items use their own activity assignment, while raw inputs are shown across configured locations and checked per consuming job during planning.
 

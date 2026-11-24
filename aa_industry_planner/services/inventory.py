@@ -52,7 +52,13 @@ def inventory_by_location(user, locations=None):
     sources = authorized_sources(user).filter(include_in_planning=True)
     rows = list(
         Asset.objects.filter(source__in=sources).values(
-            "source_id", "item_id", "type_id", "quantity", "location_id", "is_blueprint_copy"
+            "source_id",
+            "item_id",
+            "type_id",
+            "quantity",
+            "location_id",
+            "location_flag",
+            "is_blueprint_copy",
         )
     )
     parents = {(r["source_id"], r["item_id"]): r["location_id"] for r in rows}
@@ -79,7 +85,12 @@ def inventory_by_location(user, locations=None):
     totals = defaultdict(lambda: defaultdict(int))
     for row in rows:
         location = root(row["source_id"], row["location_id"])
-        if location in allowed and not row["is_blueprint_copy"]:
+        # OfficeFolder entries locate corp hangars; they are not consumable items.
+        if (
+            location in allowed
+            and not row["is_blueprint_copy"]
+            and row["location_flag"] != "OfficeFolder"
+        ):
             totals[row["type_id"]][location] += row["quantity"]
     for row in ManualStock.objects.filter(
         source__in=sources,

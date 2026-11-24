@@ -242,7 +242,6 @@ def plan(
                 if ctx.reaction_hours
                 else max(1, ctx.reaction_runs)
             )
-            node.runs = ceil(node.runs / batch) * batch
         else:
             batch = node.runs
         # Respect the SDE production limit and EVE's 30-day installation limit.

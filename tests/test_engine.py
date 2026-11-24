@@ -61,10 +61,10 @@ def test_reaction_duration_controls_batches_and_does_not_use_blueprint_me():
     recipe = Recipe(1, 101, "reaction", 10, 3600, {2: 100})
     ctx = ProductionContext(reaction_runs=100, reaction_hours=4, me=10, te=20)
     node = plan(1, 50, lambda t: recipe if t == 1 else None, lambda *args: ctx).nodes[1]
-    assert node.batches == [4, 4]
-    assert node.output == 80
-    assert node.materials[2] == 800
-    assert node.estimated_seconds == 8 * 3600
+    assert node.batches == [4, 1]
+    assert node.output == 50
+    assert node.materials[2] == 500
+    assert node.estimated_seconds == 5 * 3600
 
 
 def test_batch_rounding_happens_per_job():
@@ -111,3 +111,45 @@ def test_existing_output_suppresses_all_downstream_demand():
     result = plan(1, 1, lambda t: recipe if t == 1 else None, context, stock={1: 1})
     assert result.nodes[1].runs == 0
     assert result.nodes[2].required == 0
+
+
+@pytest.mark.parametrize(
+    "required,max_runs,expected",
+    [(5, 100, [5]), (105, 100, [100, 5]), (100, 100, [100]), (1, 100, [1])],
+)
+def test_reaction_run_limit_is_a_cap_not_a_production_target(required, max_runs, expected):
+    recipe = Recipe(1, 101, "reaction", 10, 3600, {2: 100})
+    ctx = ProductionContext(
+        reaction_runs=max_runs, service_id=1, index=D("0.05"), facility_tax=D("0.01")
+    )
+    node = plan(
+        1, required * 10, lambda t: recipe if t == 1 else None, lambda *args: ctx, prices={2: D(10)}
+    ).nodes[1]
+    assert node.batches == expected
+    assert node.runs == required
+    assert node.output == required * 10
+    assert node.materials[2] == required * 100
+    assert node.estimated_seconds == required * 3600
+    assert node.estimated_job_cost == D(required * 100)
+
+
+def test_stock_reduces_runs_before_applying_the_reaction_batch_cap():
+    recipe = Recipe(1, 101, "reaction", 10, 3600, {2: 100})
+    ctx = ProductionContext(reaction_runs=100)
+    node = plan(
+        1, 50, lambda t: recipe if t == 1 else None, lambda *args: ctx, stock={1: 15}
+    ).nodes[1]
+    assert node.from_stock == 15
+    assert node.batches == [4]
+    assert node.runs == 4 and node.output == 40
+    assert node.materials[2] == 400
+
+
+def test_reaction_batch_cap_respects_sde_and_duration_limits_without_extra_runs():
+    recipe = Recipe(1, 101, "reaction", 1, 86400, {2: 100}, max_runs=1000)
+    ctx = ProductionContext(reaction_runs=100)
+    node = plan(1, 31, lambda t: recipe if t == 1 else None, lambda *args: ctx).nodes[1]
+    assert node.batches == [30, 1] and node.runs == 31
+    recipe = Recipe(1, 101, "reaction", 1, 3600, {2: 100}, max_runs=3)
+    node = plan(1, 8, lambda t: recipe if t == 1 else None, lambda *args: ctx).nodes[1]
+    assert node.batches == [3, 3, 2] and node.runs == 8
