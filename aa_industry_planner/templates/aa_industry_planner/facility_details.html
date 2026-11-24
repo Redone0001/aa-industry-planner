@@ -1,0 +1,33 @@
+{% load industry %}
+<article class="aip-facility-card">
+  <div class="aip-section-heading">
+    <div><h4 class="h6">{{ facility.name }}</h4><p>{{ facility.solar_system.name }} · {% if facility.structure_type %}{{ facility.structure_type.name }} · {% endif %}Structure #{{ facility.structure_id }}</p></div>
+    <span class="badge text-bg-secondary">{% if facility.structure_type_id %}Declared fit{% else %}Manual bonuses{% endif %}</span>
+  </div>
+  {% if facility.structure_type_id %}
+    <div class="aip-service-grid">
+      <div><h5 class="h6">Installed service modules</h5>
+        {% for module in facility.fitted_modules.all %}<p>{{ module.item_type.name }} <span class="badge {% if module.online %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if module.online %}Online{% else %}Offline{% endif %}</span></p>{% empty %}<p>No modules declared</p>{% endfor %}
+      </div>
+      <div><h5 class="h6">Installed rigs</h5>
+        {% for rig in facility.fitted_rigs.all %}<p>{{ rig.item_type.name }}</p>{% empty %}<p>No industry rigs declared</p>{% endfor %}
+      </div>
+    </div>
+    {% if facility.bonus_error %}<p class="alert alert-warning">{{ facility.bonus_error }}</p>{% else %}
+      <p class="text-body-secondary">Facility multipliers for representative products in each family. Blueprint ME/TE and character skills apply separately. Plans check the exact product group and category.</p>
+      <div class="table-responsive"><table class="table table-sm">
+        <thead><tr><th>Activity</th><th>Product family</th><th>Material ×</th><th>Time ×</th><th>Cost ×</th></tr></thead>
+        <tbody>{% for row in facility.bonus_rows %}<tr><td>{{ row.activity }}</td><td>{{ row.product }}</td><td>{{ row.multipliers.material }}</td><td>{{ row.multipliers.time }}</td><td>{{ row.multipliers.cost }}</td></tr>{% empty %}<tr><td colspan="5">No online industry services</td></tr>{% endfor %}</tbody>
+      </table></div>
+    {% endif %}
+  {% endif %}
+  <div class="aip-service-grid">
+    {% for service in facility.services.all %}<div>
+      <h5 class="h6">{{ service.get_activity_display }} {% if not service.online %}<span class="badge text-bg-warning">Offline</span>{% endif %}</h5>
+      {% if not facility.structure_type_id %}<p>{{ service.service_name }}</p><small>Material × {{ service.material_multiplier }} · Time × {{ service.time_multiplier }} · Cost × {{ service.cost_multiplier }}</small>
+      {% for rig in service.rigs.all %}<span class="badge text-bg-secondary">{{ rig.item_type.name }}{% if rig.applies_to_group %} · {{ rig.applies_to_group.name }}{% endif %}</span>{% endfor %}{% endif %}
+      <small>Facility tax {{ service.facility_tax|percentage }} · SCC {{ service.scc_surcharge|percentage }}</small>
+    </div>{% endfor %}
+  </div>
+  {% if facility.notes %}<p>{{ facility.notes }}</p>{% endif %}
+</article>

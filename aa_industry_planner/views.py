@@ -787,34 +787,80 @@ def facilities(request):
         .prefetch_related(
             "services__rigs__item_type", "fitted_modules__item_type", "fitted_rigs__item_type"
         )
+        .order_by("solar_system__name", "name", "pk")
     )
+    systems = {}
     for facility in facilities:
-        recent = SystemCostIndex.objects.filter(
-            solar_system=facility.solar_system,
-            recorded_at__gte=timezone.now() - timezone.timedelta(hours=2),
+        system = systems.setdefault(
+            facility.solar_system_id,
+            dict(
+                id=facility.solar_system_id,
+                name=facility.solar_system.name,
+                facilities=[],
+                indices=[],
+            ),
         )
-        latest = {}
-        for index in recent:
-            latest.setdefault(index.activity, index)
-        facility.current_indices = list(latest.values())
+        system["facilities"].append(facility)
         if facility.structure_type_id:
             try:
                 facility.bonus_rows = facility.industry_fit().preview()
             except FitError as exc:
                 facility.bonus_error = str(exc)
-    return page(request, "facilities", facilities=facilities)
+    labels = {
+        "manufacturing": "Manufacturing",
+        "reaction": "Reactions",
+        "researching_time_efficiency": "TE research",
+        "researching_material_efficiency": "ME research",
+        "copying": "Copying",
+        "invention": "Invention",
+    }
+    activity_order = {activity: position for position, activity in enumerate(labels)}
+    latest = set()
+    indices = SystemCostIndex.objects.filter(
+        solar_system_id__in=systems,
+        recorded_at__gte=timezone.now() - timezone.timedelta(hours=2),
+    ).order_by("-recorded_at", "activity")
+    for index in indices:
+        key = (index.solar_system_id, index.activity)
+        if key not in latest:
+            latest.add(key)
+            index.label = labels.get(index.activity, index.activity.replace("_", " "))
+            systems[index.solar_system_id]["indices"].append(index)
+    for system in systems.values():
+        system["indices"].sort(key=lambda index: activity_order.get(index.activity, len(labels)))
+    return page(request, "facilities", systems=list(systems.values()))
 
 
 @planner_access
 @permission_required("aa_industry_planner.manage_facilities", raise_exception=True)
 def index_history(request, pk):
-    facility = get_object_or_404(Facility.visible_to(request.user), pk=pk)
+    facility = get_object_or_404(
+        Facility.visible_to(request.user).select_related("solar_system"), pk=pk
+    )
+    return _index_history(facility.solar_system)
+
+
+@planner_access
+@permission_required("aa_industry_planner.manage_facilities", raise_exception=True)
+def system_index_history(request, pk):
+    facility = (
+        Facility.visible_to(request.user)
+        .filter(solar_system_id=pk)
+        .select_related("solar_system")
+        .first()
+    )
+    if facility is None:
+        raise Http404
+    return _index_history(facility.solar_system)
+
+
+def _index_history(system):
     rows = (
         SystemCostIndex.objects.filter(
-            solar_system=facility.solar_system,
+            solar_system=system,
             recorded_at__gte=timezone.now() - timezone.timedelta(days=90),
         )
         .order_by("recorded_at")
         .values("activity", "cost_index", "recorded_at")
     )
-    return JsonResponse({"system": str(facility.solar_system.name), "samples": list(rows)})
+    return JsonResponse({"system": str(system.name), "samples": list(rows)})

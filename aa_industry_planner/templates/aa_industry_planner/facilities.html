@@ -1,44 +1,23 @@
 {% extends 'aa_industry_planner/base.html' %}
-{% load industry %}
+{% load industry static %}
 {% block industry_content %}
 <div class="aip-section-heading">
-  <div><h2 class="h5">Industrial infrastructure</h2><p>Structure fits, calculated bonuses and hourly system-cost history.</p></div>
+  <div><h2 class="h5">Industrial infrastructure</h2><p>Grouped by solar system. Structures in a system share its activity indices.</p></div>
   {% if user.is_staff %}<a class="btn btn-primary" href="{% url 'admin:aa_industry_planner_facility_changelist' %}">Manage structures →</a>{% endif %}
 </div>
-{% for facility in facilities %}
-<section class="aip-panel card">
-  <div class="aip-section-heading">
-    <div><h2 class="h5">{{ facility.name }}</h2><p>{{ facility.solar_system.name }} · {% if facility.structure_type %}{{ facility.structure_type.name }} · {% endif %}Structure #{{ facility.structure_id }}</p></div>
-    <span class="badge text-bg-secondary">{% if facility.structure_type_id %}Declared fit{% else %}Manual bonuses{% endif %}</span>
+{% for system in systems %}
+<section class="aip-panel card aip-system" id="system-{{ system.id }}">
+  <div class="aip-section-heading"><div><h2 class="h5">{{ system.name }}</h2><p>Shared system cost indices · {{ system.facilities|length }} structure{{ system.facilities|length|pluralize }}</p></div><span class="text-body-secondary">System #{{ system.id }}</span></div>
+  <div class="aip-indices">{% for index in system.indices %}<span data-index-activity="{{ index.activity }}">{{ index.label }} <strong>{{ index.cost_index|percentage }}</strong><small>{% if index.retrieved_at %}Retrieved {{ index.retrieved_at|date:'d M H:i' }}{% else %}Sample {{ index.recorded_at|date:'d M H:i' }}{% endif %}</small></span>{% empty %}<p class="text-warning">No recent index samples. Run the public data refresh task.</p>{% endfor %}</div>
+  <div class="aip-chart" data-index-history="{% url 'aa_industry_planner:system_index_history' system.id %}">
+    <div class="aip-actions mb-3"><button class="aip-chart-key" type="button" data-reactions-only disabled>Reactions only</button><button class="aip-chart-key" type="button" data-show-all-indices disabled>Show all activities</button><small>Use the legend to show or hide an activity.</small></div>
+    <div class="aip-chart-legend" aria-label="{{ system.name }} chart activities"></div>
+    <canvas height="260" aria-label="{{ system.name }} system cost index history" role="img"></canvas>
+    <small class="aip-chart-status" role="status">Loading index history…</small>
   </div>
-  {% if facility.structure_type_id %}
-    <div class="aip-service-grid">
-      <div><h3 class="h6">Installed service modules</h3>
-        {% for module in facility.fitted_modules.all %}<p>{{ module.item_type.name }} <span class="badge {% if module.online %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if module.online %}Online{% else %}Offline{% endif %}</span></p>{% empty %}<p>No modules declared</p>{% endfor %}
-      </div>
-      <div><h3 class="h6">Installed rigs</h3>
-        {% for rig in facility.fitted_rigs.all %}<p>{{ rig.item_type.name }}</p>{% empty %}<p>No industry rigs declared</p>{% endfor %}
-      </div>
-    </div>
-    {% if facility.bonus_error %}<p class="alert alert-warning">{{ facility.bonus_error }}</p>{% else %}
-      <p class="text-body-secondary">Facility multipliers for representative products in each family. Blueprint ME/TE and character skills apply separately. Plans check the exact product group and category.</p>
-      <div class="table-responsive"><table class="table table-sm">
-        <thead><tr><th>Activity</th><th>Product family</th><th>Material ×</th><th>Time ×</th><th>Cost ×</th></tr></thead>
-        <tbody>{% for row in facility.bonus_rows %}<tr><td>{{ row.activity }}</td><td>{{ row.product }}</td><td>{{ row.multipliers.material }}</td><td>{{ row.multipliers.time }}</td><td>{{ row.multipliers.cost }}</td></tr>{% empty %}<tr><td colspan="5">No online industry services</td></tr>{% endfor %}</tbody>
-      </table></div>
-    {% endif %}
-  {% endif %}
-  <div class="aip-service-grid">
-    {% for service in facility.services.all %}<div>
-      <h3 class="h6">{{ service.get_activity_display }} {% if not service.online %}<span class="badge text-bg-warning">Offline</span>{% endif %}</h3>
-      {% if not facility.structure_type_id %}<p>{{ service.service_name }}</p><small>Material × {{ service.material_multiplier }} · Time × {{ service.time_multiplier }} · Cost × {{ service.cost_multiplier }}</small>
-      {% for rig in service.rigs.all %}<span class="badge text-bg-secondary">{{ rig.item_type.name }}{% if rig.applies_to_group %} · {{ rig.applies_to_group.name }}{% endif %}</span>{% endfor %}{% endif %}
-      <small>Facility tax {{ service.facility_tax|percentage }} · SCC {{ service.scc_surcharge|percentage }}</small>
-    </div>{% endfor %}
-  </div>
-  <div class="aip-indices">{% for index in facility.current_indices %}<span>{{ index.activity }} <strong>{{ index.cost_index|percentage }}</strong><small>{{ index.recorded_at|date:'d M H:i' }}</small></span>{% empty %}<p class="text-warning-emphasis">No recent index samples. Run the public data refresh task.</p>{% endfor %}</div>
-  <div class="aip-chart" data-index-history="{% url 'aa_industry_planner:index_history' facility.pk %}"><div class="aip-chart-legend"></div><canvas height="240" aria-label="System cost index history" role="img"></canvas><small class="aip-chart-status">Loading index history…</small></div>
-  {% if facility.notes %}<p>{{ facility.notes }}</p>{% endif %}
+  <h3 class="h6 mt-4">Structures in {{ system.name }}</h3>
+  <div class="aip-system-structures">{% for facility in system.facilities %}{% include 'aa_industry_planner/facility_details.html' %}{% endfor %}</div>
 </section>
 {% empty %}<div class="aip-empty"><h3 class="h6">No facilities configured</h3><p>Add structures, service modules and rigs in Django administration.</p></div>{% endfor %}
 {% endblock %}
+{% block extra_javascript %}{{ block.super }}<script src="{% static 'aa_industry_planner/index_history.js' %}?v={{ industry_version }}" defer></script>{% endblock %}

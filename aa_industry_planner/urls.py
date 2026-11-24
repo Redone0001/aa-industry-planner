@@ -32,4 +32,5 @@ urlpatterns = [
     path("notifications/read/", views.mark_read, name="mark_read"),
     path("facilities/", views.facilities, name="facilities"),
     path("facilities/<int:pk>/history/", views.index_history, name="index_history"),
+    path("systems/<int:pk>/history/", views.system_index_history, name="system_index_history"),
 ]
