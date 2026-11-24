@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("aa_industry_planner", "0002_alter_systemcostindex_activity"),
-        ("eve_sde", "0040_sde_rest_release_versions"),
+        ("eve_sde", "0018_blueprintactivity_blueprintactivityproduct_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

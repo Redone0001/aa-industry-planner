@@ -15,7 +15,8 @@ class Migration(migrations.Migration):
     dependencies = [
         ("auth", "0012_alter_user_first_name_max_length"),
         ("esi", "0013_squashed_0012_fix_token_type_choices"),
-        ("eve_sde", "0040_sde_rest_release_versions"),
+        # Shared industry schema present in both SDE 0.2 and 2.x.
+        ("eve_sde", "0018_blueprintactivity_blueprintactivityproduct_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
