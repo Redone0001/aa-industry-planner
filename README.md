@@ -21,19 +21,19 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 
 ## Install in an existing AA instance
 
-Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Give your AA server's SSH key read access to the private GitHub repository, then install in the AA virtual environment:
+Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+ssh://git@github.com/Redone0001/aa-industry-planner.git@v0.1.1"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.1"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+ssh://git@github.com/Redone0001/aa-industry-planner.git@v0.1.1"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.1"
 ```
 
-For HTTPS with Git credentials already configured, replace `git+ssh://git@github.com/` with `git+https://github.com/`. Keep access tokens out of installation commands and requirements files.
+The public HTTPS installation does not require GitHub authentication.
 
 Alternatively, install from a local checkout:
 
