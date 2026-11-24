@@ -153,15 +153,35 @@
     activity.addEventListener("change", update);
     update();
   });
-  app.querySelectorAll("[data-expand-tree]").forEach(button => {
-    let expanded = true;
-    button.textContent = "Collapse all";
-    button.addEventListener("click", () => {
-      expanded = !expanded;
-      app.querySelectorAll(".aip-tree details").forEach(node => { node.open = expanded; });
-      button.textContent = expanded ? "Collapse all" : "Expand all";
-    });
+  app.querySelectorAll("[data-type-icon]").forEach(image => {
+    const hide = () => { image.hidden = true; };
+    image.addEventListener("error", hide);
+    if (image.complete && !image.naturalWidth) hide();
   });
+  app.querySelectorAll("[data-expand-tree]").forEach(button => {
+    const details = [...app.querySelectorAll(".aip-tree details")];
+    const update = () => { button.textContent = details.every(node => node.open) ? "Collapse all" : "Expand all"; };
+    update();
+    button.addEventListener("click", () => {
+      const expanded = details.every(node => node.open);
+      details.forEach(node => { node.open = !expanded; });
+      update();
+    });
+    details.forEach(node => node.addEventListener("toggle", update));
+  });
+  app.querySelectorAll("[data-tree-top]").forEach(button => button.addEventListener("click", () => {
+    app.querySelectorAll(".aip-tree details").forEach(node => { node.open = node.dataset.treeDepth === "0"; });
+  }));
+  app.querySelectorAll("[data-tree-reference]").forEach(link => link.addEventListener("click", event => {
+    const target = document.getElementById(link.hash.slice(1));
+    if (!target) return;
+    event.preventDefault();
+    for (let parent = target; parent; parent = parent.parentElement) {
+      if (parent.tagName === "DETAILS") parent.open = true;
+    }
+    target.scrollIntoView({behavior: "smooth", block: "center"});
+    (target.querySelector("summary") || target).focus({preventScroll: true});
+  }));
   app.querySelectorAll("[data-index-history]").forEach(async container => {
     const status = container.querySelector(".aip-chart-status");
     try {

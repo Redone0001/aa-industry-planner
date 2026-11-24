@@ -483,6 +483,18 @@ class IndustryJob(models.Model):
     def finished(self):
         return self.status in {"ready", "delivered"}
 
+    @property
+    def activity_label(self):
+        return {
+            1: "Manufacturing",
+            3: "TE research",
+            4: "ME research",
+            5: "Copying",
+            8: "Invention",
+            9: "Reactions",
+            11: "Reactions",
+        }.get(self.activity_id, f"Activity {self.activity_id}")
+
 
 class JobAllocation(models.Model):
     job = models.OneToOneField(IndustryJob, on_delete=models.CASCADE, related_name="allocation")

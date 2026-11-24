@@ -1,8 +1,8 @@
 from collections import defaultdict
 
-from django.db.models import Sum
+from django.db.models import Count, Sum
 
-from aa_industry_planner.models import Asset, InventorySource, ManualStock
+from aa_industry_planner.models import Asset, IndustryJob, InventorySource, ManualStock
 
 
 def authorized_sources(user):
@@ -53,3 +53,24 @@ def inventory_totals(user):
     ):
         totals[row["item_type_id"]] += row["total"]
     return dict(totals)
+
+
+def source_overview(user):
+    """Connection counts are separate from manual stock and AA character ownership."""
+    allowed = set(authorized_sources(user).values_list("pk", flat=True))
+    sources = list(InventorySource.objects.filter(user=user).order_by("kind", "name"))
+    job_counts = dict(
+        IndustryJob.objects.filter(user=user)
+        .values("source_id")
+        .annotate(total=Count("pk"))
+        .values_list("source_id", "total")
+    )
+    for source in sources:
+        source.connected = source.pk in allowed and source.kind != "manual"
+        source.needs_reconnection = source.kind != "manual" and source.pk not in allowed
+        source.imported_jobs = job_counts.get(source.pk, 0)
+    return {
+        "sources": sources,
+        "connected_characters": sum(s.connected and s.kind == "character" for s in sources),
+        "connected_corporations": sum(s.connected and s.kind == "corporation" for s in sources),
+    }

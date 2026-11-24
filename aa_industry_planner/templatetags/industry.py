@@ -7,6 +7,14 @@ register = template.Library()
 
 
 @register.filter
+def quantity(value):
+    try:
+        return f"{int(value):,}"
+    except (ValueError, TypeError):
+        return str(value)
+
+
+@register.filter
 def percentage(value):
     if value is None:
         return "Unavailable"

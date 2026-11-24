@@ -1,0 +1,13 @@
+{% load industry %}
+<div class="aip-tree-line" data-kind="{{ item.kind }}">
+  <span class="aip-tree-caret" aria-hidden="true">{% if expandable %}▸{% elif reference %}↗{% endif %}</span>
+  <span class="aip-item-icon" aria-hidden="true"><i class="fa-solid fa-cube"></i><img data-type-icon loading="lazy" src="https://images.evetech.net/types/{{ item.id }}/icon?size=64" alt=""></span>
+  <span class="aip-tree-name"><strong>{{ item.name }}</strong><small>{{ item.kind_label }}{% if reference %} · Shared input — open its full entry{% elif item.facility %} · {{ item.facility }}{% endif %}</small></span>
+  <span class="aip-tree-metrics">
+    {% if item.shared and edge_quantity != None %}<span><small>This branch</small><strong>{{ edge_quantity|quantity }}</strong></span>{% endif %}
+    <span><small>{% if item.shared %}Plan total{% else %}Needed{% endif %}</small><strong>{{ item.required|quantity }}</strong></span>
+    {% if item.stock %}<span><small>From stock</small><strong>{{ item.stock|quantity }}</strong></span>{% endif %}
+    {% if item.output %}<span><small>To make</small><strong>{{ item.output|quantity }}</strong></span>{% elif item.kind == 'buy' %}<span><small>To buy</small><strong>{{ item.missing|quantity }}</strong></span>{% endif %}
+  </span>
+  {% if item.step %}{% if reference %}<span class="badge text-bg-secondary">Step {{ item.step }}</span>{% else %}<a class="badge {% if item.progress == 100 %}text-bg-success{% else %}text-bg-secondary{% endif %}" href="#step-{{ item.step }}">Step {{ item.step }} · {{ item.progress }}%</a>{% endif %}{% else %}<span class="badge {% if item.kind == 'stock' %}text-bg-success{% else %}text-bg-warning{% endif %}">{{ item.kind_label }}</span>{% endif %}
+</div>

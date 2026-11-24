@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.5 adds archived-plan removal, plan refresh, industry bonus-family assignments and per-plan blueprint settings. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.1.6 adds a zoomable dependency graph, a clearer tree with branch and plan totals, and visible ESI connection counts and job-import status. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
 
 ## Features
 
@@ -11,7 +11,7 @@ Item search uses a dropdown with mouse and keyboard selection, a short typing de
 The interface inherits the selected Alliance Auth theme (including Flatly, Darkly and Materia). Cards, buttons, forms, tables, navigation and status badges use native Bootstrap components; charts and tree accents use the theme's CSS variables. Change the theme through AA's existing user settings menu.
 
 - Select an item and quantity; expand its manufacturing and reaction dependencies down to raw inputs. Refresh saved plans with current configuration; archive/restore them or remove one/all archived plans through a confirmation page.
-- Aggregate shared components before sizing jobs, allocate stock once within a plan, and show a collapsible dependency tree plus a numbered production sequence.
+- Aggregate shared components before sizing jobs, allocate stock once within a plan, and show a collapsible dependency tree, a zoomable graph with shared inputs and item inspection, and a numbered production sequence.
 - Set buy/import boundaries and an explicit recipe in item policies. Manufacturing plans default to blueprint ME 10 / TE 20, with plan defaults and individual blueprint overrides editable inside the planner. Reactions ignore ME/TE. Set reaction batch runs or duration and effective character time bonuses in Configuration.
 - Select structure hulls, installed service modules, online states and industry rigs in Django admin. Derive product-specific material/time/cost multipliers from CCP's SDE, including security and Thukker/reactor rules. Restrict facilities to AA groups and let users assign locations per activity or product group.
 - Snapshot installation estimates using unmodified-material EIV, CCP adjusted prices, the activity's system cost index, facility cost bonuses, facility tax, SCC surcharge and optional Alpha tax.
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.5 adds no new dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Version 0.1.6 adds no new migrations or dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.5" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.6" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -151,9 +151,17 @@ Archived plans have **Remove** controls on the production list and plan detail. 
 
 Upgrade migration `0005` moves each saved manufacturing calculation's ME/TE values into per-plan overrides and preserves its inventory choice. Historic snapshots remain unchanged until explicitly refreshed. Existing exact-group location assignments remain usable as legacy overrides; new assignments use CCP's 18 bonus families and retain the empty catch-all.
 
+## Reading the production chain
+
+**Build overview** switches between **Graph** and **Tree**, using the same saved plan snapshot. The graph places the finished item on the left and inputs to the right, with each shared input shown once. Cards show plan-wide demand, stock and output or buying needs. Select an item to highlight its direct connections, inspect quantities for each input and consumer, or jump to its production step.
+
+Drag the graph background to pan. Use the zoom buttons or Ctrl/Command + scroll; **Fit graph** shows the whole chain and **Readable zoom** returns to legible cards near the finished product. Fullscreen provides more room. Keyboard users can focus the graph and use arrows to pan, `+`/`-` to zoom and `0` to fit. Tabbing to an offscreen item brings it into view.
+
+The tree starts at the top level, with **Expand all**, **Collapse all** and **Top level** controls. Shared inputs show **This branch** alongside **Plan total**; their stock and production quantities remain plan totals. Repeated entries link to the first full branch, avoiding duplicated subtrees. Item colours distinguish manufacturing, reactions, buying/importing and stock.
+
 ## ESI authorization
 
-Characters must already belong to the current AA account. Connect each desired character from **Inventory**. EVE SSO cannot discover other characters on an EVE account automatically.
+Characters must already belong to the current AA account. Connect each desired character from **Inventory**. Inventory and All jobs show the number of connected characters and corporations, including **0 characters connected** when none are authorized. Owning a character in AA or adding manual stock does not connect its ESI source. EVE SSO cannot discover other characters on an EVE account automatically.
 
 Personal sources request:
 
@@ -171,6 +179,17 @@ esi-characters.read_corporation_roles.v1
 ```
 
 Corporation asset access requires a current Director. The module checks AA ownership and owner hash, token ownership and scopes, its corporation-data permission, current ESI corporation membership and the Director role. Jobs and assets are private to the connecting AA user; facilities are shared configuration. A corporation can have one source per user, avoiding duplicate imports when several of that user's characters have access.
+
+Jobs are read from these ESI endpoints:
+
+| Source | Endpoint | Required jobs scope |
+| --- | --- | --- |
+| Character | `GET /characters/{character_id}/industry/jobs/` | `esi-industry.read_character_jobs.v1` |
+| Corporation | `GET /corporations/{corporation_id}/industry/jobs/` | `esi-industry.read_corporation_jobs.v1` |
+
+Both imports request `include_completed=true`; ESI documents completed jobs within the past 90 days. **All jobs** includes manufacturing, reactions, ME/TE research, copying and invention. Research/copying jobs can lack an output item ID; the list then uses the blueprint name. Manufacturing and reactions remain the supported production-planning activities.
+
+Under **All jobs → Job sources and import status**, each source shows its last jobs sync, imported count and errors, with a refresh control. A new source remains **Never synced** until the AA Celery worker processes the queued import. A revoked or disabled source needs reconnection. Excluding stock from planning does not hide that source's jobs.
 
 Refreshing uses django-esi's token refresh, ETags, pagination and rate-limit handling. A refresh button queues work; it cannot bypass CCP's cache lifetime. The worker fetches complete asset and job datasets before replacing assets in one transaction. Failed refreshes retain the previous snapshot and report the failure. Local authorization failures disable the source until it is reconnected. Cached corporate data is not an assertion of live access; ESI and AA membership changes become known when those systems refresh.
 

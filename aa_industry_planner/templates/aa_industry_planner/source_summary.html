@@ -1,0 +1,5 @@
+<div class="aip-source-summary {% if not connected_characters %}alert alert-info{% else %}alert alert-secondary{% endif %}">
+  <div><strong>{{ connected_characters }} character{{ connected_characters|pluralize }} connected</strong><span> · {{ connected_corporations }} corporation source{{ connected_corporations|pluralize }}</span>
+  {% if not connected_characters %}<p class="mb-0 mt-1">AA characters are not connected to this planner automatically. Connect the character running your job to import its jobs and assets.</p>{% endif %}</div>
+  <div class="aip-actions"><a class="btn btn-primary" href="{% url 'aa_industry_planner:connect_character' %}">＋ Connect character</a>{% if perms.aa_industry_planner.use_corporation_data %}<a class="btn btn-secondary" href="{% url 'aa_industry_planner:connect_corporation' %}">Connect corporation</a>{% endif %}</div>
+</div>

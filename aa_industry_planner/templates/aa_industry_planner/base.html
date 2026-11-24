@@ -1,7 +1,7 @@
 {% extends 'allianceauth/base-bs5.html' %}
 {% load static i18n %}
 {% block page_title %}{% trans 'Industry Planner' %}{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{% static 'aa_industry_planner/industry.css' %}">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'aa_industry_planner/industry.css' %}?v={{ industry_version }}">{% endblock %}
 {% block content %}
 <div class="aip" data-type-search-url="{% url 'aa_industry_planner:type_search' %}">
   <header class="aip-header">

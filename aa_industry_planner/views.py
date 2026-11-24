@@ -43,10 +43,11 @@ from .models import (
     SystemCostIndex,
     UserPreferences,
 )
-from .services.inventory import authorized_sources, inventory_totals
+from .services.inventory import authorized_sources, inventory_totals, source_overview
 from .services.jobs import allocate_job, update_progress
 from .services.planning import create_plan
 from .services.planning import refresh_plan as refresh_production_plan
+from .services.presentation import plan_views
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
 
@@ -141,20 +142,13 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     nodes = snapshot.get("nodes", {})
     step_map = {step.item_type_id: step for step in steps}
 
-    def build_tree(type_id, seen):
-        node = nodes.get(str(type_id), {})
-        if type_id in seen:
-            return {"name": node.get("name", str(type_id)), "reference": True, "type_id": type_id}
-        seen.add(type_id)
-        return {
-            "type_id": type_id,
-            "name": node.get("name", str(type_id)),
-            "node": node,
-            "step": step_map.get(type_id),
-            "children": [build_tree(int(t), seen) for t in node.get("materials", {})],
-        }
-
-    tree = build_tree(production.item_type_id, set())
+    tree, dependency_graph = plan_views(
+        snapshot,
+        {
+            tid: {"position": step.position, "progress": step.progress}
+            for tid, step in step_map.items()
+        },
+    )
     inputs = [n for n in nodes.values() if n["missing"] and not n["runs"]]
     dependencies = {
         s.item_type_id: [
@@ -187,6 +181,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         plan=production,
         steps=steps,
         tree=tree,
+        dependency_graph=dependency_graph,
         inputs=inputs,
         candidate_jobs=visible_jobs[:300],
         settings_form=settings_form,
@@ -317,8 +312,8 @@ def inventory(request):
         "inventory",
         form=form,
         rows=rows,
-        sources=InventorySource.objects.filter(user=request.user),
         manual=ManualStock.objects.filter(source__user=request.user).select_related("item_type"),
+        **source_overview(request.user),
     )
 
 
@@ -354,7 +349,11 @@ def source_action(request, pk):
     elif action == "disconnect":
         source.delete()
         evaluate_watches(request.user)
-    return redirect("aa_industry_planner:inventory")
+    return redirect(
+        "aa_industry_planner:jobs"
+        if request.POST.get("return_to") == "jobs"
+        else "aa_industry_planner:inventory"
+    )
 
 
 def connect(kind):
@@ -447,8 +446,8 @@ def jobs(request):
     from django.core.paginator import Paginator
 
     jobs_page = Paginator(qs, 100).get_page(request.GET.get("page"))
-    ids = {job.product_type_id for job in jobs_page}
-    names = {t.pk: str(t.name) for t in ItemType.objects.filter(pk__in=ids)}
+    ids = {tid for job in jobs_page for tid in [job.product_type_id, job.blueprint_type_id] if tid}
+    names = dict(ItemType.objects.filter(pk__in=ids).values_list("id", "name"))
     from eveuniverse.models import EveEntity
 
     installers = dict(
@@ -457,8 +456,10 @@ def jobs(request):
         )
     )
     for job in jobs_page:
-        job.product_name = names.get(
-            job.product_type_id, str(job.product_type_id or "Blueprint activity")
+        job.product_name = (
+            names.get(job.product_type_id)
+            or names.get(job.blueprint_type_id)
+            or str(job.product_type_id or job.blueprint_type_id)
         )
         job.installer_name = installers.get(job.installer_id) or str(job.installer_id)
     return page(
@@ -467,6 +468,7 @@ def jobs(request):
         jobs=jobs_page,
         status=status,
         statuses=["active", "paused", "ready", "delivered", "cancelled", "reverted"],
+        **source_overview(request.user),
     )
 
 
