@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django import template
 from eve_sde.models import ItemType
@@ -12,6 +12,31 @@ def quantity(value):
         return f"{int(value):,}"
     except (ValueError, TypeError):
         return str(value)
+
+
+@register.filter
+def compact_isk(value):
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            return "Unavailable"
+        amount = amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        if abs(amount) < 1_000_000:
+            return f"{amount:,} ISK"
+        divisor, unit = (
+            (Decimal("1000000000"), "B")
+            if abs(amount) >= 1_000_000_000
+            else (Decimal("1000000"), "M")
+        )
+        scaled = (amount / divisor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if unit == "M" and abs(scaled) >= 1000:
+            scaled = (amount / Decimal("1000000000")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            unit = "B"
+        return f"{format(scaled, 'f').rstrip('0').rstrip('.')} {unit} ISK"
+    except (InvalidOperation, ValueError, TypeError):
+        return "Unavailable"
 
 
 @register.filter
