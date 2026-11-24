@@ -1,0 +1,25 @@
+{% extends 'allianceauth/base-bs5.html' %}
+{% load static i18n %}
+{% block page_title %}{% trans 'Industry Planner' %}{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'aa_industry_planner/industry.css' %}">{% endblock %}
+{% block content %}
+<div class="aip" data-type-search-url="{% url 'aa_industry_planner:type_search' %}">
+  <header class="aip-header">
+    <div><h1 class="h3 mb-2"><i class="fa-solid fa-industry me-2" aria-hidden="true"></i>{% trans 'Industry Planner' %}</h1><p class="text-body-secondary mb-0">{% trans 'From raw materials to the next finished build.' %}</p></div>
+    <a class="btn btn-primary" href="{% url 'aa_industry_planner:plans' %}"><span aria-hidden="true">＋</span> {% trans 'New production plan' %}</a>
+  </header>
+  <nav class="aip-nav nav nav-pills" aria-label="Industry navigation">
+    <a class="nav-link" href="{% url 'aa_industry_planner:dashboard' %}">{% trans 'Overview' %}</a>
+    <a class="nav-link" href="{% url 'aa_industry_planner:plans' %}">{% trans 'Production' %}</a>
+    <a class="nav-link" href="{% url 'aa_industry_planner:inventory' %}">{% trans 'Inventory' %}</a>
+    <a class="nav-link" href="{% url 'aa_industry_planner:jobs' %}">{% trans 'All jobs' %}</a>
+    <a class="nav-link" href="{% url 'aa_industry_planner:watches' %}">{% trans 'Inventory watch' %}</a>
+    {% if perms.aa_industry_planner.manage_facilities %}<a class="nav-link" href="{% url 'aa_industry_planner:facilities' %}">{% trans 'Facilities & indices' %}</a>{% endif %}
+    <a class="nav-link" href="{% url 'aa_industry_planner:configuration' %}">{% trans 'Configuration' %}</a>
+    <a class="nav-link" href="{% url 'aa_industry_planner:notifications' %}">{% trans 'Notifications' %} {% if unread_count %}<span class="badge text-bg-secondary ms-1">{{ unread_count }}</span>{% endif %}</a>
+  </nav>
+  {% block industry_content %}{% endblock %}
+  <footer class="aip-footer text-body-secondary">{% trans 'Industry Planner' %}<span>{% trans 'Manufacturing & reactions' %}</span></footer>
+</div>
+{% endblock %}
+{% block extra_javascript %}<script src="{% static 'aa_industry_planner/industry.js' %}" defer></script>{% endblock %}

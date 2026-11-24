@@ -1,0 +1,20 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: sudo apt-get update && sudo apt-get install -y default-libmysqlclient-dev pkg-config
+      - run: pip install '.[test,discord]'
+      - run: ruff check aa_industry_planner tests scripts
+      - run: pytest -q
+      - run: python -m django check --settings=tests.settings
+      - run: python -m django makemigrations aa_industry_planner --check --dry-run --settings=tests.settings
+      - run: python -m build

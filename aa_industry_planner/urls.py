@@ -1,0 +1,29 @@
+from django.urls import path
+
+from . import views
+
+app_name = "aa_industry_planner"
+urlpatterns = [
+    path("", views.dashboard, name="dashboard"),
+    path("types/", views.type_search, name="type_search"),
+    path("plans/", views.plans, name="plans"),
+    path("plans/<int:pk>/", views.plan_detail, name="plan"),
+    path("plans/<int:pk>/archive/", views.archive_plan, name="archive_plan"),
+    path("plans/<int:pk>/link/", views.link_job, name="link_job"),
+    path("allocations/<int:pk>/unlink/", views.unlink_job, name="unlink_job"),
+    path("inventory/", views.inventory, name="inventory"),
+    path("inventory/manual/<int:pk>/delete/", views.delete_manual, name="delete_manual"),
+    path("sources/<int:pk>/", views.source_action, name="source_action"),
+    path("connect/character/", views.connect_character, name="connect_character"),
+    path("connect/corporation/", views.connect_corporation, name="connect_corporation"),
+    path("jobs/", views.jobs, name="jobs"),
+    path("watches/", views.watches, name="watches"),
+    path("watches/<int:pk>/plan/", views.replenish, name="replenish"),
+    path("configuration/", views.configuration, name="configuration"),
+    path("policies/<int:pk>/delete/", views.delete_policy, name="delete_policy"),
+    path("assignments/<int:pk>/delete/", views.delete_assignment, name="delete_assignment"),
+    path("notifications/", views.notifications, name="notifications"),
+    path("notifications/read/", views.mark_read, name="mark_read"),
+    path("facilities/", views.facilities, name="facilities"),
+    path("facilities/<int:pk>/history/", views.index_history, name="index_history"),
+]

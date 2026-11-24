@@ -1,0 +1,171 @@
+/* Layout only: Alliance Auth's selected Bootstrap/Bootswatch theme owns colours and controls. */
+.aip {
+  width: 100%;
+  max-width: 1800px;
+  margin-inline: auto;
+  padding: .5rem;
+}
+
+.aip-header,
+.aip-section-heading,
+.aip-source,
+.aip-actions,
+.aip-job-link,
+.aip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.aip-header { margin-bottom: 1.5rem; }
+.aip-header > .btn { flex-shrink: 0; }
+.aip-nav { gap: .25rem; margin-bottom: 1.5rem; }
+.aip-nav .badge { vertical-align: middle; }
+.aip-section-heading { margin-bottom: 1.25rem; }
+.aip-section-heading h2,
+.aip-section-heading h3,
+.aip-section-heading p { margin-bottom: 0; }
+.aip-section-heading p { margin-top: .5rem; }
+.aip small { display: block; color: var(--bs-secondary-color); }
+.aip-eyebrow { font-size: .75rem; margin-bottom: .5rem; }
+
+.aip-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.aip-stats > .card { padding: 1.25rem; }
+.aip-stats span { color: var(--bs-secondary-color); font-size: .875rem; }
+.aip-stats strong { display: block; font-size: 2rem; font-weight: 500; margin-block: .25rem; }
+
+.aip-panel { min-width: 0; padding: 1.25rem; margin-bottom: 1.5rem; }
+.aip-two-col {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(0, 1.5fr);
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.aip-two-col > .aip-panel { margin-bottom: 0; }
+.aip-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.aip-plan-card { padding: 1.25rem; }
+.aip-plan-card:hover { border-color: var(--bs-primary); }
+.aip-plan-card > .badge { align-self: flex-start; }
+.aip-plan-card h3 { margin-block: 1.25rem .75rem; }
+.aip-plan-card > strong { font-size: 1.75rem; font-weight: 500; }
+.aip-plan-card strong small { display: inline; font-size: .875rem; font-weight: 400; }
+.aip-plan-card > p { color: var(--bs-secondary-color); margin-top: .5rem; }
+.aip-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  border-top: 1px solid var(--bs-border-color);
+  padding-top: 1rem;
+  margin-top: auto;
+  color: var(--bs-secondary-color);
+  font-size: .875rem;
+}
+.aip-card-bottom span { color: var(--bs-link-color); }
+
+.aip-actions,
+.aip-actions form { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.aip-actions { justify-content: flex-start; }
+.aip-actions .form-label { margin-bottom: 0; }
+.aip-actions .form-select { width: auto; min-width: 9rem; }
+.aip-source { padding-block: 1rem; border-bottom: 1px solid var(--bs-border-color); }
+.aip-source:last-child { border-bottom: 0; }
+.aip-note { margin-block: 1.25rem; }
+.aip .number { text-align: right; font-variant-numeric: tabular-nums; }
+.aip .table th { white-space: nowrap; }
+.aip .table td > small { margin-top: .25rem; }
+.aip-low-row td:first-child { border-left: .25rem solid var(--bs-warning); }
+.aip .errorlist { color: var(--bs-danger); list-style: none; padding: 0; font-size: .875rem; }
+.aip form > .form-label:not(:first-child) { margin-top: .75rem; }
+.aip form > .form-select + .btn { margin-top: .75rem; }
+.aip-policy-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 0 1.25rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+.aip-policy-form > .btn { justify-self: start; align-self: center; }
+
+.aip-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem 1.25rem;
+  border: 1px dashed var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+}
+.aip-empty > i { font-size: 1.5rem; color: var(--bs-secondary-color); margin-bottom: .75rem; }
+.aip-empty p { max-width: 500px; margin: .5rem auto 1.25rem; color: var(--bs-secondary-color); }
+.aip-empty.compact { border: 0; padding: 1.5rem .75rem; }
+.aip-list > a { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 1.25rem; border-bottom: 1px solid var(--bs-border-color); }
+.aip-list > a:last-child { border-bottom: 0; }
+.aip-list span { white-space: nowrap; font-size: .875rem; }
+
+.aip-step { display: flex; gap: 1rem; padding-block: 1.5rem; border-bottom: 1px solid var(--bs-border-color); }
+.aip-step:last-child { border-bottom: 0; }
+.aip-step-number { width: 2rem; height: 2rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.aip-step-body { flex: 1; min-width: 0; }
+.aip-step-body .aip-section-heading { margin-bottom: .75rem; }
+.aip-step-meta { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font-size: .875rem; color: var(--bs-secondary-color); margin-block: .75rem; }
+.aip-step-progress { height: .5rem; margin-block: 1rem; }
+.aip-dependencies { font-size: .875rem; color: var(--bs-secondary-color); }
+.aip-dependencies a { margin-inline: .25rem; }
+.aip-details summary { font-size: .875rem; color: var(--bs-link-color); cursor: pointer; margin-block: .75rem; }
+.aip-job-link { font-size: .875rem; border-bottom: 1px solid var(--bs-border-color); padding-block: .5rem; }
+
+.aip-tree-node { padding-block: .5rem; }
+.aip-tree-node > summary { display: flex; align-items: center; gap: .75rem; cursor: pointer; flex-wrap: wrap; list-style: none; padding-block: .5rem; }
+.aip-tree-node > summary::-webkit-details-marker { display: none; }
+.aip-tree-node > summary::before { content: '▸'; color: var(--bs-secondary-color); width: .75rem; }
+.aip-tree-node[open] > summary::before { content: '▾'; }
+.aip-tree-dot { width: .5rem; height: .5rem; border: 1px solid var(--bs-secondary-color); border-radius: 50%; flex-shrink: 0; }
+.aip-tree-dot.done { border-color: var(--bs-success); background: var(--bs-success); }
+.aip-tree-node > small { margin-left: 3rem; }
+.aip-tree-children { margin-left: 1.75rem; border-left: 1px solid var(--bs-border-color); padding-left: 1.25rem; }
+.aip-tree-reference { font-size: .875rem; margin-block: .5rem; color: var(--bs-secondary-color); }
+
+.aip-notification { border-bottom: 1px solid var(--bs-border-color); padding: 1.25rem 0 1.25rem 1rem; border-left: .25rem solid transparent; }
+.aip-notification.unread { border-left-color: var(--bs-primary); }
+.aip-notification:last-child { border-bottom: 0; }
+.aip-notification p { margin-bottom: .5rem; }
+.aip-service-grid { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.aip-service-grid > div { flex: 1; min-width: 220px; border: 1px solid var(--bs-border-color); padding: 1rem; border-radius: var(--bs-border-radius); }
+.aip-service-grid .badge { white-space: normal; margin-top: .75rem; }
+.aip-indices { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-block: 1.5rem; }
+.aip-indices > span { font-size: .875rem; text-transform: capitalize; }
+.aip-indices strong { display: block; font-size: 1.5rem; font-weight: 500; }
+.aip-chart canvas { width: 100%; height: 240px; display: block; }
+.aip-chart-legend { display: flex; gap: 1.25rem; font-size: .875rem; text-transform: capitalize; margin-bottom: .75rem; flex-wrap: wrap; }
+.aip-chart-legend > span { display: inline-flex; align-items: center; gap: .4rem; }
+.aip-chart-swatch { width: .65rem; height: .65rem; border-radius: 50%; }
+.aip-pagination { display: flex; justify-content: center; gap: 1.25rem; margin-top: 1.5rem; font-size: .875rem; }
+.aip-footer { border-top: 1px solid var(--bs-border-color); padding-top: 1rem; font-size: .875rem; margin-top: 1.5rem; }
+
+@media (max-width: 1100px) {
+  .aip-two-col { grid-template-columns: 1fr; }
+  .aip-policy-form { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .aip { padding: 0; }
+  .aip-header,
+  .aip-section-heading,
+  .aip-source { align-items: flex-start; flex-direction: column; }
+  .aip-stats { grid-template-columns: 1fr; gap: .75rem; }
+  .aip-policy-form { grid-template-columns: 1fr; }
+  .aip-panel { padding: 1rem; }
+  .aip-tree-children { padding-left: .75rem; margin-left: .75rem; }
+  .aip-footer { flex-wrap: wrap; }
+  .aip-list > a { align-items: flex-start; flex-direction: column; }
+  .aip-step { gap: .75rem; }
+}

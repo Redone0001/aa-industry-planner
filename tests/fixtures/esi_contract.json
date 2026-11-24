@@ -1,0 +1,99 @@
+{
+  "source": "https://esi.evetech.net/meta/openapi.json?compatibility_date=2026-11-19",
+  "operations": {
+    "GetCharactersDetail": {
+      "path": "/characters/{character_id}",
+      "method": "get",
+      "tags": [
+        "Character"
+      ],
+      "security": []
+    },
+    "GetCharactersCharacterIdAssets": {
+      "path": "/characters/{character_id}/assets",
+      "method": "get",
+      "tags": [
+        "Assets"
+      ],
+      "security": [
+        {
+          "OAuth2": [
+            "esi-assets.read_assets.v1"
+          ]
+        }
+      ]
+    },
+    "GetCharactersCharacterIdIndustryJobs": {
+      "path": "/characters/{character_id}/industry/jobs",
+      "method": "get",
+      "tags": [
+        "Industry"
+      ],
+      "security": [
+        {
+          "OAuth2": [
+            "esi-industry.read_character_jobs.v1"
+          ]
+        }
+      ]
+    },
+    "GetCharactersCharacterIdRoles": {
+      "path": "/characters/{character_id}/roles",
+      "method": "get",
+      "tags": [
+        "Character"
+      ],
+      "security": [
+        {
+          "OAuth2": [
+            "esi-characters.read_corporation_roles.v1"
+          ]
+        }
+      ]
+    },
+    "GetCorporationsCorporationIdAssets": {
+      "path": "/corporations/{corporation_id}/assets",
+      "method": "get",
+      "tags": [
+        "Assets"
+      ],
+      "security": [
+        {
+          "OAuth2": [
+            "esi-assets.read_corporation_assets.v1"
+          ]
+        }
+      ]
+    },
+    "GetCorporationsCorporationIdIndustryJobs": {
+      "path": "/corporations/{corporation_id}/industry/jobs",
+      "method": "get",
+      "tags": [
+        "Industry"
+      ],
+      "security": [
+        {
+          "OAuth2": [
+            "esi-industry.read_corporation_jobs.v1"
+          ]
+        }
+      ]
+    },
+    "GetIndustrySystems": {
+      "path": "/industry/systems",
+      "method": "get",
+      "tags": [
+        "Industry"
+      ],
+      "security": []
+    },
+    "GetMarketsPrices": {
+      "path": "/markets/prices",
+      "method": "get",
+      "tags": [
+        "Market"
+      ],
+      "security": []
+    }
+  }
+}
