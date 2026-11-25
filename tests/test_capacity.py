@@ -2,6 +2,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from allianceauth.menu.templatetags.menu_menu_items import render_menu
 from django.urls import reverse
 from django.utils import timezone
 
@@ -170,6 +171,61 @@ def test_configuration_validates_thresholds_and_keeps_other_defaults(user, clien
         preferences.sync_error_grace_minutes,
     ) == (4, 0, 45)
     assert preferences.reaction_runs == 50
+
+
+@pytest.mark.parametrize(
+    ("badge", "count"), [("both", 5), ("manufacturing", 2), ("reaction", 3), ("off", None)]
+)
+def test_configuration_controls_industry_sidebar_badge(
+    user, other_user, fresh, client, badge, count
+):
+    assert settings(user).sidebar_slot_badge == "both"
+    other_settings = settings(other_user, sidebar_slot_badge="reaction")
+    add_job(user, fresh)
+    add_job(user, fresh, status="paused")
+    add_job(user, fresh, activity=9)
+    add_job(user, fresh, activity=11, status="ready")
+    add_job(user, fresh, installer=99999999)
+    client.force_login(user)
+    response = client.post(
+        reverse("aa_industry_planner:configuration"),
+        {
+            "form": "operations",
+            "manufacturing_slots": 4,
+            "reaction_slots": 4,
+            "sync_error_grace_minutes": 30,
+            "sidebar_slot_badge": badge,
+        },
+        follow=True,
+    )
+    assert response.status_code == 200
+    assert b'name="sidebar_slot_badge"' in response.content
+    assert UserPreferences.objects.get(user=user).sidebar_slot_badge == badge
+    other_settings.refresh_from_db()
+    assert other_settings.sidebar_slot_badge == "reaction"
+    entry = next(
+        item
+        for item in render_menu(response.wsgi_request)
+        if item.menu_item.text == "Industry Planner"
+    )
+    assert entry.count == count
+    assert ("badge text-bg-primary" in entry.html) == (count is not None)
+
+
+def test_sidebar_hides_badge_when_selected_slots_are_all_in_use(user, fresh, client):
+    UserPreferences.objects.create(
+        user=user, manufacturing_slots=1, reaction_slots=4, sidebar_slot_badge="manufacturing"
+    )
+    add_job(user, fresh)
+    add_job(user, fresh, status="paused")
+    client.force_login(user)
+    response = client.get(reverse("aa_industry_planner:dashboard"))
+    entry = next(
+        item
+        for item in render_menu(response.wsgi_request)
+        if item.menu_item.text == "Industry Planner"
+    )
+    assert entry.count is None
 
 
 def test_character_management_lives_in_configuration_and_inventory_keeps_counts(

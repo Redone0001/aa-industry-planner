@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from allianceauth.authentication.models import CharacterOwnership
 from django.db import transaction
+from django.db.models import Count
 from django.utils import timezone
 
 from aa_industry_planner.models import (
@@ -20,34 +21,20 @@ from .inventory import authorized_sources
 ACTIVITIES = ("manufacturing", "reaction")
 
 
-def capacity_status(user, preferences=None, now=None):
-    now = now or timezone.now()
-    preferences = preferences or UserPreferences.objects.get_or_create(user=user)[0]
-    sources = list(authorized_sources(user).exclude(kind="manual"))
+def _owned_jobs(user, sources):
     owned = CharacterOwnership.objects.filter(user=user).values_list(
         "character__character_id", flat=True
     )
-    jobs = list(
-        IndustryJob.objects.filter(
-            user=user,
-            source__in=sources,
-            installer_id__in=owned,
-            activity_id__in=[1, 9, 11],
-            status__in=["active", "paused", "ready"],
-        )
+    return IndustryJob.objects.filter(
+        user=user,
+        source__in=sources,
+        installer_id__in=owned,
+        activity_id__in=JOB_ACTIVITIES,
+        status__in=["active", "paused", "ready"],
     )
-    counts = Counter((JOB_ACTIVITIES[job.activity_id], job.status) for job in jobs)
-    configured_sources = InventorySource.objects.filter(user=user).exclude(kind="manual").count()
-    fresh = (
-        bool(sources)
-        and len(sources) == configured_sources
-        and all(
-            source.last_jobs_sync
-            and source.last_jobs_sync >= now - timedelta(minutes=30)
-            and not source.last_error
-            for source in sources
-        )
-    )
+
+
+def _slot_rows(preferences, counts):
     rows = []
     for activity in ACTIVITIES:
         slots = getattr(preferences, f"{activity}_slots")
@@ -65,7 +52,57 @@ def capacity_status(user, preferences=None, now=None):
                 max_idle=getattr(preferences, f"{activity}_max_idle"),
             )
         )
-    return dict(rows=rows, jobs=jobs, fresh=fresh, sources=sources)
+    return rows
+
+
+def capacity_status(user, preferences=None, now=None):
+    now = now or timezone.now()
+    preferences = preferences or UserPreferences.objects.get_or_create(user=user)[0]
+    sources = list(authorized_sources(user).exclude(kind="manual"))
+    jobs = list(_owned_jobs(user, sources))
+    counts = Counter((JOB_ACTIVITIES[job.activity_id], job.status) for job in jobs)
+    configured_sources = InventorySource.objects.filter(user=user).exclude(kind="manual").count()
+    fresh = (
+        bool(sources)
+        and len(sources) == configured_sources
+        and all(
+            source.last_jobs_sync
+            and source.last_jobs_sync >= now - timedelta(minutes=30)
+            and not source.last_error
+            for source in sources
+        )
+    )
+    return dict(rows=_slot_rows(preferences, counts), jobs=jobs, fresh=fresh, sources=sources)
+
+
+def sidebar_slot_count(user):
+    preferences = UserPreferences.objects.filter(user=user).first()
+    if preferences is None:
+        return None
+    badge = preferences.sidebar_slot_badge
+    activities = (
+        ACTIVITIES
+        if badge == UserPreferences.SidebarSlotBadge.BOTH
+        else tuple(activity for activity in ACTIVITIES if activity == badge)
+    )
+    if not any(getattr(preferences, f"{activity}_slots") for activity in activities):
+        return None
+
+    # The Auth sidebar runs on every page. Aggregate jobs without loading full rows.
+    occupied = (
+        _owned_jobs(user, authorized_sources(user).exclude(kind="manual"))
+        .filter(status__in=["active", "paused"])
+        .order_by()
+        .values("activity_id", "status")
+        .annotate(total=Count("pk"))
+    )
+    counts = Counter()
+    for row in occupied:
+        counts[JOB_ACTIVITIES[row["activity_id"]], row["status"]] += row["total"]
+    return (
+        sum(row["idle"] for row in _slot_rows(preferences, counts) if row["activity"] in activities)
+        or None
+    )
 
 
 @transaction.atomic

@@ -3,7 +3,7 @@ from datetime import UTC
 from django.conf import settings
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Value
-from django.db.models.functions import Cast, Concat
+from django.db.models.functions import Cast, Coalesce, Concat
 from django.urls import reverse
 from django.utils import timezone
 
@@ -153,6 +153,7 @@ def send_discord(notification, session=None):
         timeout=20,
     )
     response.raise_for_status()
+    sent_at = timezone.now()
     Notification.objects.filter(pk=notification.pk).update(
-        discord_sent_at=timezone.now(), discord_error=""
+        discord_sent_at=sent_at, discord_error="", read_at=Coalesce("read_at", Value(sent_at))
     )

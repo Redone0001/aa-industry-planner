@@ -321,6 +321,12 @@ class AdjustedPrice(models.Model):
 
 
 class UserPreferences(models.Model):
+    class SidebarSlotBadge(models.TextChoices):
+        BOTH = "both", "Manufacturing and reactions"
+        MANUFACTURING = "manufacturing", "Manufacturing only"
+        REACTION = "reaction", "Reactions only"
+        OFF = "off", "Off"
+
     user = models.OneToOneField(USER, on_delete=models.CASCADE, related_name="industry_preferences")
     reaction_runs = models.PositiveIntegerField(
         default=1, validators=[MinValueValidator(1), MaxValueValidator(100000)]
@@ -339,6 +345,9 @@ class UserPreferences(models.Model):
     )
     reaction_slots = models.PositiveSmallIntegerField(
         default=0, validators=[MaxValueValidator(1000)]
+    )
+    sidebar_slot_badge = models.CharField(
+        max_length=20, choices=SidebarSlotBadge.choices, default=SidebarSlotBadge.BOTH
     )
     manufacturing_min_active = models.PositiveSmallIntegerField(
         null=True, blank=True, validators=[MaxValueValidator(1000)]

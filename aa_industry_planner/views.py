@@ -780,7 +780,7 @@ def configuration(request):
                     SlotMonitorState.objects.filter(user=request.user, activity=activity).update(
                         warning_active=False
                     )
-            messages.success(request, "Slots, warning thresholds and ESI error grace period saved.")
+            messages.success(request, "Production slot and monitoring settings saved.")
             return redirect(reverse("aa_industry_planner:configuration") + "#production-slots")
         if action == "storage" and storage_form.is_valid():
             ActivityStorageLocation.objects.get_or_create(

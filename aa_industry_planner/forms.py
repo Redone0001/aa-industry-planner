@@ -267,11 +267,19 @@ class PreferencesForm(StyledFormMixin, forms.ModelForm):
 
 
 class OperationsForm(StyledFormMixin, forms.ModelForm):
+    sidebar_slot_badge = forms.ChoiceField(
+        label="Sidebar badge",
+        choices=UserPreferences.SidebarSlotBadge.choices,
+        required=False,
+        help_text="Choose which unused slots to count next to Industry Planner in the sidebar.",
+    )
+
     class Meta:
         model = UserPreferences
         fields = [
             "manufacturing_slots",
             "reaction_slots",
+            "sidebar_slot_badge",
             "manufacturing_min_active",
             "reaction_min_active",
             "manufacturing_max_idle",
@@ -297,6 +305,9 @@ class OperationsForm(StyledFormMixin, forms.ModelForm):
                 for threshold in ["min_active", "max_idle"]
             },
         }
+
+    def clean_sidebar_slot_badge(self):
+        return self.cleaned_data["sidebar_slot_badge"] or self.instance.sidebar_slot_badge
 
     def clean(self):
         data = super().clean()

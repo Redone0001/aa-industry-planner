@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.2.1 adds delivery reminders for jobs that still show Active after their scheduled finish. Version 0.2.0 introduced batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
+Version 0.2.2 marks Discord-delivered notifications as read and adds a configurable unused-slot badge to the Alliance Auth sidebar. Version 0.2.1 introduced delivery reminders for jobs that still show Active after their scheduled finish. Version 0.2.0 introduced batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
 
 ## Features
 
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.1"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.2"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.1"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.2"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.1"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.2"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Django applies any pending planner migrations through `0009`. The `--no-deps` option preserves the installed SDE and ESI versions.
+Restart AA's web and Celery worker processes afterwards. Django applies any pending planner migrations. The `--no-deps` option preserves the installed SDE and ESI versions.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.1" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.2" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -261,6 +261,8 @@ Manage character/corporation ESI connections in **Configuration → Characters &
 
 Under **Production slots, warnings & sync**, enter total **manufacturing** and **reaction** slots across your characters. These are separate activity budgets, as described in [CCP’s job type documentation](https://support.eveonline.com/hc/en-us/articles/203210272-Activities-and-Job-Types). Zero leaves new work in that activity unscheduled. Saved plan pages recalculate their timing forecast using current slot settings, saved job durations, completed/ongoing coverage and current imported jobs, without replacing their material/cost snapshots. Each step shows its estimated finish in the compact row and start/finish dates in its details. Refresh the plan calculation after changing batch limits, structures or skills.
 
+Use **Sidebar badge** in the same section to show unused slots next to **Industry Planner** in the Alliance Auth sidebar. Choose both activities, manufacturing only, reactions only, or off. Both activities are selected by default. The count uses the idle totals shown in Configuration and appears when the selected activities have at least one unused slot.
+
 Manufacturing and reaction jobs each share their own slot pool across all branches. Each saved batch starts when a slot is free and its full input quantities are available. Finished upstream batches release their output for downstream jobs while later upstream batches continue. Shared output is consumed once across branches. Imported active/paused jobs installed by your owned characters reserve capacity, including jobs outside the plan. A paused job or an active job past its reported end needs an ESI status update to forecast its slot release. Already installed jobs count toward remaining demand, including inputs they consumed when they started. The forecast uses saved stock allocations and assumes buy/import inputs and blueprints are available now and that delivery and hauling are immediate. Forecasts over 50,000 remaining jobs require larger batches.
 
 For each activity, optionally set **active jobs below a minimum**, **idle slots above a maximum**, or both. Blank disables that condition; idle limit `0` warns when any slot is idle. Idle means not producing and includes ready-to-deliver jobs, which are shown separately so you can deliver them before reusing those slots. Paused jobs occupy slots but do not count as active or idle. Counts use ESI-reported status. Alerts fire once per warning episode and rearm after recovery or a change to that activity's thresholds/slots. Notifications can disable this event or send it through existing opt-in Discord DMs. Alerts wait for error-free imports no older than 30 minutes from every configured ESI source; missing/revoked sources must be reconnected or removed. The existing `evaluate_all_watches` Beat task now checks slot warnings too, so no additional schedule is required. Successful imports also evaluate them.
@@ -272,6 +274,8 @@ For each activity, optionally set **active jobs below a minimum**, **idle slots 
 Configure Multiverse's bot and managed server according to the [Multiverse documentation](https://github.com/Solar-Helix-Independent-Transport/allianceauth-discord-multiverse). This module reuses its bot token and **MultiDiscordUser** link; it does not store another token or infer a user from their Discord display name.
 
 In Django admin, add **Industry Planner → Planner configuration** and set `discord_guild_id` to the managed guild. Each user must have access to that guild and an activated link in Multiverse. Users opt in to **Discord DM** under Notifications, and choose completion, low-inventory, low-active-job / idle-slot, and sync-failure events. Failed DM delivery remains visible in the notification panel. Rate limits and transient failures retry with bounded backoff; denied DMs or missing links stop retrying.
+
+Successful Discord DMs are marked as read in the planner inbox. Migration `0010` applies this to previously delivered DMs and preserves any existing read dates.
 
 ## Development and validation
 

@@ -2,6 +2,8 @@ from allianceauth import hooks
 from allianceauth.services.hooks import MenuItemHook, UrlHook
 from django.utils.translation import gettext_lazy as _
 
+from .services.capacity import sidebar_slot_count
+
 
 class IndustryMenu(MenuItemHook):
     def __init__(self):
@@ -14,6 +16,7 @@ class IndustryMenu(MenuItemHook):
 
     def render(self, request):
         if request.user.has_perm("aa_industry_planner.access_planner"):
+            self.count = sidebar_slot_count(request.user)
             return super().render(request)
         return ""
 
