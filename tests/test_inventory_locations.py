@@ -1,7 +1,10 @@
+from unittest.mock import Mock, patch
+
 import pytest
 from django.contrib.auth.models import Group
 from django.urls import reverse
-from eve_sde.models import BlueprintActivity
+from esi.models import Scope
+from eve_sde.models import BlueprintActivity, NPCStation
 
 from aa_industry_planner.engine import (
     ProductionContext,
@@ -19,7 +22,9 @@ from aa_industry_planner.models import (
     FacilityService,
     InventorySource,
     ManualStock,
+    SavedStorageLocation,
 )
+from aa_industry_planner.providers import STRUCTURE_NAME_SCOPE
 from aa_industry_planner.services.inventory import inventory_by_location, inventory_totals
 from aa_industry_planner.services.planning import calculate, create_plan, refresh_plan
 
@@ -135,29 +140,42 @@ def test_raw_inputs_only_draw_from_the_consuming_activity(user, recipes, source,
 def test_inventory_and_plan_show_stock_elsewhere_with_location_and_quantity(
     user, recipes, source, sites, client
 ):
-    a, b, _, outside = sites
+    a, b, unused, outside = sites
+    FacilityService.objects.create(facility=outside, activity="reaction")
     asset(source, 10, 5, 4, a.structure_id)
     asset(source, 11, 5, 2, b.structure_id)
     asset(source, 12, 5, 5, outside.structure_id)
     asset(source, 13, 100, 1, 1000000099999, location_flag="Hangar")
     asset(source, 14, 5, 1, 13, location_flag="Unlocked")
     asset(source, 15, 5, 800, 1000000099998, location_flag="Unlocked")
+    asset(source, 16, 5, 25, unused.structure_id)
+    asset(source, 17, 5, 10, 60000001)
+    asset(source, 18, 60, 1, b.structure_id, location_flag="Hangar")
+    asset(source, 19, 100, 1, 18, location_flag="Unlocked")
+    asset(source, 20, 5, 25, 19, location_flag="Unlocked")
+    asset(source, 21, 5, 20, a.structure_id, location_flag="AssetSafety")
 
     client.force_login(user)
     inventory = client.get(reverse("aa_industry_planner:inventory"))
     raw = next(row for row in inventory.context["rows"] if row["name"] == recipes[5].name)
     assert raw["quantity"] == 6
-    assert raw["elsewhere"] == [(outside.name, 5), ("Location #1000000099999", 1)]
+    assert raw["elsewhere"] == [(outside.name, 5)]
     assert b"Wrong location" in inventory.content
 
     production = create_plan(user, 1, 3)
     response = client.get(reverse("aa_industry_planner:plan", args=[production.pk]))
     shortage = response.context["inputs"][0]
     assert shortage["missing"] == shortage["required"] - 2
-    assert sum(pile["quantity"] for pile in shortage["stock_elsewhere"]) == 10
+    assert sum(pile["quantity"] for pile in shortage["stock_elsewhere"]) == 9
     assert any(pile["name"] == a.name for pile in shortage["stock_elsewhere"])
     assert response.context["multibuy"] == f"Raw input {shortage['missing']}"
     assert b"Stock in wrong location" in response.content
+
+    production.snapshot.pop("stock_elsewhere_scoped")
+    production.save(update_fields=["snapshot"])
+    response = client.get(reverse("aa_industry_planner:plan", args=[production.pk]))
+    assert not response.context["inputs"][0]["stock_elsewhere"]
+    assert b"Refresh this plan to update wrong-location stock" in response.content
 
 
 def test_intermediate_stock_at_its_production_site_is_not_available_to_a_different_consumer(
@@ -280,6 +298,102 @@ def test_storage_forms_are_user_scoped_allow_storage_without_services_and_are_po
     client.force_login(user)
     assert client.post(remove).status_code == 302
     assert not ActivityStorageLocation.objects.filter(pk=row.pk).exists()
+
+
+def test_saved_station_is_available_for_selection_before_it_supplies_any_stock(
+    user, other_user, client, recipes, source, sites
+):
+    a, _, _, _ = sites
+    station = NPCStation.objects.create(
+        pk=60003760, name="Supply station", solar_system=a.solar_system
+    )
+    asset(source, 10, 5, 10, station.pk)
+    client.force_login(user)
+    config = reverse("aa_industry_planner:configuration")
+    payload = {"form": "save_storage_location", "saved-location-location_id": station.pk}
+    assert client.post(config, payload).status_code == 302
+    saved = SavedStorageLocation.objects.get(user=user)
+    assert saved.name == station.name and not saved.manufacturing and not saved.reaction
+    assert 5 not in inventory_by_location(user, include_elsewhere=True)
+    assert b"Supply station" in client.get(config).content
+
+    select = reverse("aa_industry_planner:set_activity_storage", args=[station.pk])
+    assert client.get(select).status_code == 405
+    assert client.post(select, {"manufacturing": "on"}).status_code == 302
+    _, snapshot = calculate(user, 1, 1)
+    assert snapshot["nodes"]["5"]["stock_elsewhere"][0]["name"] == station.name
+    assert snapshot["nodes"]["5"]["from_stock"] == 0
+    assert client.post(select, {"reaction": "on"}).status_code == 302
+    _, snapshot = calculate(user, 1, 1)
+    assert not snapshot["nodes"]["5"]["stock_elsewhere"]
+    assert snapshot["nodes"]["5"]["from_stock"] == 10
+    assert client.post(select).status_code == 302
+    assert 5 not in inventory_by_location(user, include_elsewhere=True)
+    assert SavedStorageLocation.objects.filter(pk=saved.pk).exists()
+
+    client.force_login(other_user)
+    assert b"Supply station" not in client.get(config).content
+    assert client.post(select, {"reaction": "on"}).status_code == 404
+    remove = reverse("aa_industry_planner:delete_saved_storage_location", args=[saved.pk])
+    assert client.post(remove).status_code == 404
+
+
+def test_structure_lookup_uses_a_scoped_owned_token_and_allows_manual_fallback(
+    user, client, source
+):
+    scope, _ = Scope.objects.get_or_create(name=STRUCTURE_NAME_SCOPE)
+    source.token.scopes.add(scope)
+    client.force_login(user)
+    config = reverse("aa_industry_planner:configuration")
+    payload = {"form": "save_storage_location", "saved-location-location_id": 1000000099999}
+    api = Mock()
+    api.structure.side_effect = TimeoutError("private response")
+    with patch("aa_industry_planner.providers.ESI", return_value=api):
+        response = client.post(config, payload)
+        assert response.status_code == 200
+        assert b"Enter one for this location" in response.content
+        assert b"private response" not in response.content
+        api.structure.assert_called_once_with(1000000099999, source.token)
+        assert not SavedStorageLocation.objects.exists()
+        api.reset_mock(side_effect=True)
+        api.structure.return_value = {"name": "Personal refinery"}
+        assert client.post(config, payload).status_code == 302
+        assert SavedStorageLocation.objects.get().name == "Personal refinery"
+        api.reset_mock()
+        assert (
+            client.post(
+                config, dict(payload, **{"saved-location-name": "Trade storage"})
+            ).status_code
+            == 302
+        )
+        assert SavedStorageLocation.objects.get().name == "Trade storage"
+        api.structure.assert_not_called()
+
+
+def test_private_facility_ids_cannot_be_used_as_personal_storage(user, client, source, sites):
+    _, _, _, restricted = sites
+    restricted.allowed_groups.add(Group.objects.create(name="Hidden facility"))
+    asset(source, 20, 5, 10, restricted.structure_id)
+    client.force_login(user)
+    payload = {
+        "form": "save_storage_location",
+        "saved-location-location_id": restricted.structure_id,
+        "saved-location-name": "My storage",
+    }
+    response = client.post(reverse("aa_industry_planner:configuration"), payload)
+    assert response.status_code == 200
+    assert not SavedStorageLocation.objects.exists()
+    assert (
+        client.post(
+            reverse("aa_industry_planner:set_activity_storage", args=[restricted.structure_id]),
+            {"reaction": "on"},
+        ).status_code
+        == 404
+    )
+    SavedStorageLocation.objects.create(
+        user=user, location_id=restricted.structure_id, name="Old name", reaction=True
+    )
+    assert 5 not in inventory_by_location(user, include_elsewhere=True)
 
 
 def test_manual_stock_can_be_assigned_a_structure_without_duplicate_declarations(

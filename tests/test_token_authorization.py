@@ -8,7 +8,7 @@ from django.utils import timezone
 from esi.models import CallbackRedirect, Scope, Token
 
 from aa_industry_planner.models import InventorySource
-from aa_industry_planner.providers import CHARACTER_SCOPES, CORPORATION_SCOPES
+from aa_industry_planner.providers import CHARACTER_SCOPES, CORPORATION_SCOPES, STRUCTURE_NAME_SCOPE
 from aa_industry_planner.services.inventory import authorized_sources, source_overview
 from aa_industry_planner.services.sync import validate_source
 
@@ -41,6 +41,21 @@ def test_sso_authorization_url_requests_exact_required_scopes(user, client, kind
     expected = CORPORATION_SCOPES if kind == "corporation" else CHARACTER_SCOPES
     assert set(params["scope"][0].split()) == set(expected)
     assert not InventorySource.objects.filter(user=user).exists()
+
+
+def test_structure_lookup_authorization_keeps_existing_asset_connection(user, source, client):
+    client.force_login(user)
+    url = reverse("aa_industry_planner:connect_structure_lookup")
+    response = client.get(url)
+    assert response.status_code == 302
+    assert parse_qs(urlparse(response.url).query)["scope"] == [STRUCTURE_NAME_SCOPE]
+    scope, _ = Scope.objects.get_or_create(name=STRUCTURE_NAME_SCOPE)
+    source.token.scopes.add(scope)
+    with patch("aa_industry_planner.tasks.refresh_source.delay") as refresh:
+        response = client.post(url, {"_token": source.token_id})
+    assert response.url.endswith("#activity-storage")
+    assert InventorySource.objects.get(user=user).token_id == source.token_id
+    refresh.assert_not_called()
 
 
 @pytest.mark.parametrize(

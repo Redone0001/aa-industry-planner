@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.3.1 adds raw and compressed gas Multibuy exports with a per-user decompression yield. Version 0.3.0 introduced plans with multiple outputs and a production queue showing ready batches, deliveries, and materials to buy or move across active plans. Version 0.2.3 added delivery actions to the Alliance Auth sidebar badge. Version 0.2.2 added the badge preference and marked Discord-delivered notifications as read. Version 0.2.1 introduced delivery reminders for jobs that still show Active after their scheduled finish. Version 0.2.0 introduced batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
+Version 0.4.0 adds personal storage locations by EVE ID, limits wrong-location stock to configured industry and storage locations, and fixes the MySQL collation error in job reminders. Version 0.3.1 introduced gas Multibuy exports with a per-user decompression yield. Version 0.3.0 introduced plans with multiple outputs and a production queue showing ready batches, deliveries, and materials to buy or move across active plans. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
 
 ## Features
 
@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -162,7 +162,9 @@ Upgrade migration `0005` moves each saved manufacturing calculation's ME/TE valu
 
 A job can draw existing inputs only from its **assigned production structure** and optional **storage structures for that activity**. Bonus-family and legacy group overrides choose the job location using the same precedence as facility bonuses. For example, reaction inputs at a manufacturing factory do not reduce a reactor’s material requirements unless that factory is explicitly added as reaction storage. An intermediate’s existing stock must be at its consuming job’s location, even when the intermediate would be produced elsewhere.
 
-Under **Configuration → Activity storage**, select an activity and a structure, then **Add storage location**. Multiple storage structures are supported, including facilities with no industry services. Storage applies to every job of that activity; inaccessible/inactive facilities are excluded. Stock already at the job location is preferred, and a shared storage pile is allocated at most once within the plan. When storage serves multiple jobs, allocation respects each job’s eligible locations without inventing stock or creating avoidable shortages.
+Under **Configuration → Activity storage**, add an EVE station or structure ID to your personal list. Leave the name blank to look it up from the SDE for an NPC station or through ESI for an Upwell structure. Use **Authorize structure name lookup** to grant the lookup scope to an owned character with access. Enter a name manually if lookup is unavailable. The list also includes visible facilities configured by your administrator.
+
+Select **Manufacturing storage**, **Reaction storage**, or both beside a location and save its activities. Only selected locations supply storage stock. Use the same controls to deselect a location and keep it in the list. Storage applies to every job of the selected activity, including when its location has no industry service. Stock already at the job location is preferred, and a shared storage pile is allocated once within the plan.
 
 The configured facility’s deployed `structure_id` must match its physical ESI location ID. Assets inside containers are traced through their source’s asset hierarchy to the enclosing configured structure. Unresolved or cyclic container references are excluded. Excluded sources, revoked ownership, inaccessible structures, and blueprint copies remain excluded.
 
@@ -170,7 +172,7 @@ Corporation assets follow the same hierarchy: an item in a division (`CorpSAG1` 
 
 **Inventory → Declare inventory** now requires a structure and optionally a hangar/label. Quantities are absolute per item, structure and label. Migration `0006` preserves existing declarations and labels without guessing their physical location: records without a structure do not count until you use **Edit location / quantity** to assign one. The inventory overview shows configured stock; produced items use their own activity assignment, while raw inputs are shown across configured locations and checked per consuming job during planning.
 
-Plan material details show required units, stock allocated from allowed locations, remaining production/buying needs and the actual stock locations. Stock drawn from separate storage is marked for hauling. **Wrong location** appears in yellow in Inventory and in saved plan material details. The plan shows how much of each shortage can be covered by moving stock, while shopping quantities reflect the stock already at allowed locations.
+Plan material details show required units, stock allocated from allowed locations, remaining production/buying needs and the actual stock locations. **Wrong location** shows stock at visible facilities with online manufacturing or reaction services and at locations selected for activity storage. The planner ignores unrelated locations and anything inside Asset Safety wraps. Refresh an older saved plan to recalculate its transfer suggestions. [CCP’s Asset Safety guide](https://support.eveonline.com/hc/en-us/articles/208289365-Asset-Safety)
 
 Saved calculations retain their original snapshot. Old calculations that used pooled inventory show a notice; use **Refresh plan** to apply the location restrictions and current storage settings. Stock use is not a reservation across separate plans. If an activity has no assigned production structure, only storage explicitly configured for that activity can supply its jobs.
 

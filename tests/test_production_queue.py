@@ -112,6 +112,7 @@ def test_combined_queue_spends_stock_once_and_separates_hauling_from_buying(
         structure_id=1000000000002,
         solar_system=assigned_facility.solar_system,
     )
+    FacilityService.objects.create(facility=warehouse, activity="manufacturing")
     ManualStock.objects.create(
         source=source, item_type=recipes[5], facility=assigned_facility, quantity=10
     )

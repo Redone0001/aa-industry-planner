@@ -13,6 +13,7 @@ CORPORATION_SCOPES = [
     "esi-industry.read_corporation_jobs.v1",
     "esi-characters.read_corporation_roles.v1",
 ]
+STRUCTURE_NAME_SCOPE = "esi-universe.read_structures.v1"
 
 
 def required_scopes(kind):
@@ -20,6 +21,8 @@ def required_scopes(kind):
         return CORPORATION_SCOPES
     if kind == "character":
         return CHARACTER_SCOPES
+    if kind == "structure":
+        return [STRUCTURE_NAME_SCOPE]
     return []
 
 
@@ -42,6 +45,7 @@ esi = ESIClientProvider(
         "GetCorporationsCorporationIdIndustryJobs",
         "GetIndustrySystems",
         "GetMarketsPrices",
+        "GetUniverseStructuresStructureId",
     ],
 )
 
@@ -74,6 +78,13 @@ class ESI:
             esi.client.Character.GetCharactersDetail(character_id=character_id).result(
                 use_etag=False
             )
+        )
+
+    def structure(self, structure_id, token):
+        return unpack(
+            esi.client.Universe.GetUniverseStructuresStructureId(
+                structure_id=structure_id, token=token
+            ).result(use_etag=False)
         )
 
     def roles(self, token):

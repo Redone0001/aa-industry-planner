@@ -33,6 +33,24 @@ def fee_presentation(details):
     )
 
 
+def visible_stock_details(details, transfer_names):
+    def eligible_piles(row):
+        return [
+            dict(pile, name=transfer_names[pile["location_id"]])
+            for pile in row.get("stock_elsewhere", [])
+            if pile["location_id"] in transfer_names
+        ]
+
+    return dict(
+        details,
+        stock_elsewhere=eligible_piles(details),
+        input_inventory=[
+            dict(row, stock_elsewhere=eligible_piles(row))
+            for row in details.get("input_inventory", [])
+        ],
+    )
+
+
 def plan_views(snapshot, steps, checked=()):
     raw = snapshot.get("nodes", {})
     baseline = snapshot.get("before_purchases", {})

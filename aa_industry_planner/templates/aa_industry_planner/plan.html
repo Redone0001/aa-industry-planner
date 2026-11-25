@@ -11,6 +11,7 @@
 </div>
 <div class="aip-note alert alert-info">{{ plan.snapshot.inventory_scope }} Costs and facilities are saved at calculation time. Materials may need transporting between locations. Finished jobs still need delivery before their outputs become usable.</div>
 {% if legacy_inventory_scope %}<div class="alert alert-warning">This saved calculation used pooled inventory. {% if plan.archived %}Restore it and refresh{% else %}Refresh this plan{% endif %} to apply location restrictions.</div>{% endif %}
+{% if legacy_transfers %}<div class="alert alert-info">{% if plan.archived %}Restore and refresh this plan{% else %}Refresh this plan{% endif %} to update wrong-location stock under the current storage settings.</div>{% endif %}
 {% include 'aa_industry_planner/production_timing.html' %}
 {% include 'aa_industry_planner/plan_overview.html' %}
 <section class="aip-panel card">

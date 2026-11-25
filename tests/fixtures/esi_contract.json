@@ -94,6 +94,20 @@
         "Market"
       ],
       "security": []
+    },
+    "GetUniverseStructuresStructureId": {
+      "path": "/universe/structures/{structure_id}",
+      "method": "get",
+      "tags": [
+        "Universe"
+      ],
+      "security": [
+        {
+          "OAuth2": [
+            "esi-universe.read_structures.v1"
+          ]
+        }
+      ]
     }
   }
 }

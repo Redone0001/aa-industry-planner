@@ -2,14 +2,20 @@ import sys
 from contextlib import nullcontext
 from importlib import import_module
 from types import ModuleType, SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from django.apps import apps
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from aa_industry_planner.models import Notification, NotificationPreferences, PlannerConfiguration
+from aa_industry_planner.models import (
+    Notification,
+    NotificationPreferences,
+    PlannerConfiguration,
+    UserPreferences,
+)
 from aa_industry_planner.services.notifications import (
     discord_embed,
     emit,
@@ -53,6 +59,33 @@ def test_periodic_checks_remind_at_finish_time_without_a_new_import(
     assert reminder.event_key == f"job:{job.job_id}:finished"
     assert "scheduled to finish" in reminder.message
     deliver.assert_called_once_with(reminder.pk)
+
+
+def test_periodic_watches_deduplicate_overdue_jobs_using_literal_event_keys(user, source):
+    finish = timezone.now()
+    make_job(user, source, job_id=501, end_date=finish)
+    make_job(user, source, job_id=502, end_date=finish)
+    emit(user, "job_finished", "job:501:finished", "Done", "Already notified")
+    UserPreferences.objects.create(user=user, manufacturing_slots=1)
+
+    with (
+        CaptureQueriesContext(connection) as queries,
+        patch("aa_industry_planner.services.watches.evaluate_watches") as watches,
+    ):
+        evaluate_all_watches.run()
+    watches.assert_called_once_with(user)
+    assert set(Notification.objects.values_list("event_key", flat=True)) == {
+        "job:501:finished",
+        "job:502:finished",
+    }
+    assert any(
+        '"event_key" IN' in query["sql"] and "job:501:finished" in query["sql"] for query in queries
+    )
+    assert all(
+        "CAST(" not in query["sql"]
+        for query in queries
+        if '"aa_industry_planner_industryjob"' in query["sql"]
+    )
 
 
 def test_reminder_skips_paused_cancelled_and_already_delivered_jobs(user, source):

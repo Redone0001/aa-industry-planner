@@ -1,9 +1,10 @@
 from datetime import UTC
+from itertools import islice
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Value
-from django.db.models.functions import Cast, Coalesce, Concat
+from django.db.models import Value
+from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.utils import timezone
 
@@ -32,6 +33,10 @@ def emit(user, kind, event_key, title, message):
     return notification
 
 
+def job_finished_key(job):
+    return f"job:{job.job_id}:finished"
+
+
 def notify_job_finished(job):
     if job.finished:
         title = "Industry job finished"
@@ -45,7 +50,7 @@ def notify_job_finished(job):
             f"Job #{job.job_id} ({job.runs:,} runs) was scheduled to finish on {finish}. "
             "Check Industry in EVE and deliver the job when ready."
         )
-    return emit(job.user, "job_finished", f"job:{job.job_id}:finished", title, message)
+    return emit(job.user, "job_finished", job_finished_key(job), title, message)
 
 
 def remind_overdue_jobs(*, user=None, now=None):
@@ -57,30 +62,31 @@ def remind_overdue_jobs(*, user=None, now=None):
             user__is_active=True,
         )
         .exclude(user__notificationpreferences__job_finished=False)
-        .alias(
-            finish_event_key=Concat(Value("job:"), Cast("job_id", CharField()), Value(":finished"))
-        )
-        .filter(
-            ~Exists(
-                Notification.objects.filter(
-                    user_id=OuterRef("user_id"), event_key=OuterRef("finish_event_key")
-                )
-            )
-        )
         .select_related("user")
     )
     if user is not None:
         jobs = jobs.filter(user=user)
     allowed = {}
-    for job in jobs.iterator():
-        if job.user_id not in allowed:
-            allowed[job.user_id] = (
-                set(authorized_sources(job.user).values_list("pk", flat=True))
-                if job.user.has_perm("aa_industry_planner.access_planner")
-                else set()
-            )
-        if job.source_id in allowed[job.user_id]:
-            notify_job_finished(job)
+    rows = jobs.iterator(chunk_size=400)
+    while batch := list(islice(rows, 400)):
+        # Bind literal keys so MySQL compares them using the event_key column's collation.
+        existing = set(
+            Notification.objects.filter(
+                user_id__in={job.user_id for job in batch},
+                event_key__in={job_finished_key(job) for job in batch},
+            ).values_list("user_id", "event_key")
+        )
+        for job in batch:
+            if (job.user_id, job_finished_key(job)) in existing:
+                continue
+            if job.user_id not in allowed:
+                allowed[job.user_id] = (
+                    set(authorized_sources(job.user).values_list("pk", flat=True))
+                    if job.user.has_perm("aa_industry_planner.access_planner")
+                    else set()
+                )
+            if job.source_id in allowed[job.user_id]:
+                notify_job_finished(job)
 
 
 def discord_embed(notification):

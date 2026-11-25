@@ -48,6 +48,7 @@ def test_requested_scopes_match_the_reviewed_ccp_endpoint_contract():
             "GetCorporationsCorporationIdIndustryJobs",
             "GetCharactersCharacterIdRoles",
         ],
+        "structure": ["GetUniverseStructuresStructureId"],
     }.items():
         expected = {
             scope

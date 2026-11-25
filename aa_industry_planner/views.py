@@ -2,6 +2,7 @@ from functools import wraps
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
@@ -27,12 +28,14 @@ from .forms import (
     PlanTargetFormSet,
     PolicyForm,
     PreferencesForm,
+    SavedStorageLocationForm,
     StorageLocationForm,
     WatchForm,
     blueprint_rows,
 )
 from .industry import BONUS_SCOPE_OFFSET
 from .models import (
+    Activity,
     ActivityStorageLocation,
     Facility,
     FacilityAssignment,
@@ -49,6 +52,7 @@ from .models import (
     PlanStep,
     ProductionPlan,
     ReplenishmentTask,
+    SavedStorageLocation,
     SlotMonitorState,
     SystemCostIndex,
     UserPreferences,
@@ -59,14 +63,18 @@ from .services.inventory import (
     authorized_sources,
     inventory_by_location,
     source_overview,
-    stock_location_names,
 )
 from .services.job_assignments import annotate_assignments
 from .services.jobs import allocate_job, job_outputs, reconcile_jobs, unallocate_job
-from .services.locations import InventoryLocations
+from .services.locations import (
+    InventoryLocations,
+    is_station_id,
+    lookup_storage_name,
+    storage_choices,
+)
 from .services.planning import create_plan_for_targets
 from .services.planning import refresh_plan as refresh_production_plan
-from .services.presentation import fee_presentation, plan_views
+from .services.presentation import fee_presentation, plan_views, visible_stock_details
 from .services.production_queue import production_queue as build_production_queue
 from .services.readiness import annotate_steps, multibuy_line, multibuy_text
 from .services.scheduling import estimate_schedule, target_production
@@ -204,7 +212,18 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         )
     )
     snapshot = production.snapshot
-    nodes = snapshot.get("nodes", {})
+    locations = InventoryLocations(request.user)
+    scoped = snapshot.get("stock_elsewhere_scoped")
+    transfer_names = locations.transfer_names if scoped and snapshot.get("inventory_used") else {}
+    legacy_transfers = not scoped and any(
+        node.get("stock_elsewhere") for node in snapshot.get("nodes", {}).values()
+    )
+    nodes = {
+        tid: visible_stock_details(node, transfer_names)
+        for tid, node in snapshot.get("nodes", {}).items()
+    }
+    for step in steps:
+        step.details = visible_stock_details(step.details, transfer_names)
     step_map = {step.item_type_id: step for step in steps}
     checked = set(production.checklist.filter(checked=True).values_list("item_type_id", flat=True))
     services = set(
@@ -212,7 +231,9 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
             online=True, facility__in=Facility.visible_to(request.user)
         ).values_list("pk", flat=True)
     )
-    annotate_steps(steps, inventory_by_location(request.user), checked, available_services=services)
+    annotate_steps(
+        steps, inventory_by_location(request.user, locations), checked, available_services=services
+    )
     allocations = [a for s in steps for a in s.allocations.all()]
     outputs = job_outputs([a.job for a in allocations])
     for allocation in allocations:
@@ -224,7 +245,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     )
 
     tree, dependency_graph = plan_views(
-        snapshot,
+        dict(snapshot, nodes=nodes),
         {
             tid: {
                 "position": step.position,
@@ -308,6 +329,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         dependency_graph=dependency_graph,
         legacy_inventory_scope=snapshot.get("inventory_used", True)
         and "inventory_locations" not in snapshot,
+        legacy_transfers=legacy_transfers,
         inputs=inputs,
         multibuy=multibuy_text(inputs),
         gas_multibuy=gas_multibuy(inputs, preferences.gas_decompression_yield),
@@ -468,7 +490,6 @@ def inventory(request):
     item_ids = stock.keys() | watches.keys()
     names = dict(ItemType.objects.filter(pk__in=item_ids).values_list("pk", "name"))
     rows = []
-    outside_ids = set()
     for tid in item_ids:
         allowed = set(locations.item_scope(tid).location_ids) if tid in stock else set()
         piles = stock.get(tid, {})
@@ -476,7 +497,6 @@ def inventory(request):
         elsewhere = {loc: amount for loc, amount in piles.items() if loc not in allowed and amount}
         if not quantity and not elsewhere and tid not in watches:
             continue
-        outside_ids.update(elsewhere)
         minimum = watches[tid].minimum if tid in watches else None
         policy = locations.policies.get(tid)
         rows.append(
@@ -490,10 +510,10 @@ def inventory(request):
                 elsewhere=elsewhere,
             )
         )
-    location_names = stock_location_names(request.user, outside_ids) if outside_ids else {}
     for row in rows:
         row["elsewhere"] = [
-            (location_names[loc], amount) for loc, amount in sorted(row["elsewhere"].items())
+            (locations.transfer_names[loc], amount)
+            for loc, amount in sorted(row["elsewhere"].items())
         ]
     rows.sort(key=lambda r: (not r["low"], r["name"]))
     return page(
@@ -602,6 +622,9 @@ def connect(kind):
                 raise PermissionDenied("A valid ESI token with all required permissions is needed.")
             token.user = request.user
             token.save(update_fields=["user"])
+            if kind == "structure":
+                messages.success(request, "Structure name lookup is authorized.")
+                return redirect(reverse("aa_industry_planner:configuration") + "#activity-storage")
             from .providers import ESI
 
             api = ESI()
@@ -652,6 +675,11 @@ def connect_character(request):
 
 @connect("corporation")
 def connect_corporation(request):
+    pass
+
+
+@connect("structure")
+def connect_structure_lookup(request):
     pass
 
 
@@ -819,6 +847,10 @@ def configuration(request):
         user=request.user,
         prefix="storage",
     )
+    saved_location_form = SavedStorageLocationForm(
+        request.POST if request.POST.get("form") == "save_storage_location" else None,
+        prefix="saved-location",
+    )
     if request.method == "POST":
         action = request.POST.get("form")
         if action == "operations" and operations_form.is_valid():
@@ -838,6 +870,39 @@ def configuration(request):
             )
             evaluate_watches(request.user)
             return redirect("aa_industry_planner:configuration")
+        if action == "save_storage_location" and saved_location_form.is_valid():
+            location_id = saved_location_form.cleaned_data["location_id"]
+            if Facility.visible_to(request.user).filter(structure_id=location_id).exists():
+                messages.info(request, "This facility is already in your location list.")
+                return redirect(reverse("aa_industry_planner:configuration") + "#activity-storage")
+            if Facility.objects.filter(structure_id=location_id).exists():
+                saved_location_form.add_error(
+                    "location_id", "This facility is unavailable to your account."
+                )
+            elif not (is_station_id(location_id) or location_id >= 10**12):
+                saved_location_form.add_error("location_id", "Enter a station or structure ID.")
+            else:
+                saved = SavedStorageLocation.objects.filter(
+                    user=request.user, location_id=location_id
+                )
+                name = (
+                    saved_location_form.cleaned_data["name"]
+                    or saved.values_list("name", flat=True).first()
+                    or lookup_storage_name(request.user, location_id)
+                )
+                if name:
+                    saved.update_or_create(
+                        user=request.user, location_id=location_id, defaults={"name": name}
+                    )
+                    messages.success(
+                        request, "Location saved. Choose which activities can use its stock."
+                    )
+                    return redirect(
+                        reverse("aa_industry_planner:configuration") + "#activity-storage"
+                    )
+                saved_location_form.add_error(
+                    "name", "Lookup could not find a name. Enter one for this location."
+                )
         if action == "preferences" and prefs_form.is_valid():
             prefs_form.save()
             return redirect("aa_industry_planner:configuration")
@@ -872,9 +937,8 @@ def configuration(request):
         policy_form=policy_form,
         assignment_form=assignment_form,
         storage_form=storage_form,
-        storage_locations=ActivityStorageLocation.objects.filter(user=request.user).select_related(
-            "facility"
-        ),
+        saved_location_form=saved_location_form,
+        storage_locations=storage_choices(request.user),
         policies=ItemPolicy.objects.filter(user=request.user).select_related(
             "item_type", "blueprint_type"
         ),
@@ -907,6 +971,44 @@ def delete_storage_location(request, pk):
     get_object_or_404(ActivityStorageLocation, pk=pk, user=request.user).delete()
     evaluate_watches(request.user)
     return redirect("aa_industry_planner:configuration")
+
+
+@planner_access
+@require_POST
+def set_activity_storage(request, location_id):
+    selected = {activity for activity in Activity.values if request.POST.get(activity) == "on"}
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        facility = Facility.visible_to(request.user).filter(structure_id=location_id).first()
+        saved = (
+            SavedStorageLocation.available_to(request.user)
+            .select_for_update()
+            .filter(location_id=location_id)
+            .first()
+        )
+        if not (facility or saved):
+            raise Http404
+        if facility:
+            shared = ActivityStorageLocation.objects.filter(user=request.user, facility=facility)
+            shared.exclude(activity__in=selected).delete()
+            for activity in selected:
+                shared.get_or_create(user=request.user, facility=facility, activity=activity)
+        if saved:
+            personal = selected if not facility else set()
+            saved.manufacturing = "manufacturing" in personal
+            saved.reaction = "reaction" in personal
+            saved.save(update_fields=["manufacturing", "reaction"])
+    evaluate_watches(request.user)
+    messages.success(request, "Storage activities saved.")
+    return redirect(reverse("aa_industry_planner:configuration") + "#activity-storage")
+
+
+@planner_access
+@require_POST
+def delete_saved_storage_location(request, pk):
+    get_object_or_404(SavedStorageLocation, pk=pk, user=request.user).delete()
+    evaluate_watches(request.user)
+    return redirect(reverse("aa_industry_planner:configuration") + "#activity-storage")
 
 
 @planner_access

@@ -261,6 +261,18 @@ class StorageLocationForm(StyledFormMixin, forms.ModelForm):
         labels = {"facility": "Storage structure"}
 
 
+class SavedStorageLocationForm(StyledFormMixin, forms.Form):
+    location_id = forms.IntegerField(
+        label="Location ID",
+        min_value=1,
+        max_value=2**63 - 1,
+        help_text="Enter the EVE station or structure ID.",
+    )
+    name = forms.CharField(
+        max_length=200, required=False, help_text="Leave blank to look up the name."
+    )
+
+
 class PreferencesForm(StyledFormMixin, forms.ModelForm):
     gas_decompression_yield = forms.IntegerField(
         label="Gas decompression yield (%)",

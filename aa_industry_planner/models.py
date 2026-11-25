@@ -286,6 +286,26 @@ class ActivityStorageLocation(models.Model):
         return f"{self.get_activity_display()} storage · {self.facility}"
 
 
+class SavedStorageLocation(models.Model):
+    user = models.ForeignKey(USER, on_delete=models.CASCADE)
+    location_id = models.PositiveBigIntegerField()
+    name = models.CharField(max_length=200)
+    manufacturing = models.BooleanField(default=False)
+    reaction = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "location_id"], name="aip_unique_saved_storage")
+        ]
+
+    @classmethod
+    def available_to(cls, user, visible_facilities=None):
+        if visible_facilities is None:
+            visible_facilities = Facility.visible_to(user)
+        restricted = Facility.objects.exclude(pk__in=visible_facilities).values("structure_id")
+        return cls.objects.filter(user=user).exclude(location_id__in=restricted)
+
+
 class SystemCostIndex(models.Model):
     solar_system = models.ForeignKey("eve_sde.SolarSystem", on_delete=models.CASCADE)
     activity = models.CharField(max_length=40)

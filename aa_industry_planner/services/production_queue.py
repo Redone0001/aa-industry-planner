@@ -12,7 +12,7 @@ from aa_industry_planner.engine import (
 )
 from aa_industry_planner.models import Facility, FacilityService
 
-from .inventory import inventory_by_location, stock_location_names
+from .inventory import inventory_by_location
 from .locations import InventoryLocations
 from .readiness import multibuy_line
 from .scheduling import remaining_work, saved_targets, target_inventory, target_production
@@ -174,14 +174,11 @@ def production_queue(user, plans):
             pk__in={row["type_id"] for row in shortages} - names.keys()
         ).values_list("pk", "name")
     )
-    transfer_names = stock_location_names(
-        user, {loc for row in shortages for loc in row["transfers"]}
-    )
     for row in shortages:
         row["name"] = names.get(row["type_id"], str(row["type_id"]))
         row["multibuy_line"] = multibuy_line(row)
         row["transfers"] = [
-            (transfer_names[loc], amount) for loc, amount in row["transfers"].items()
+            (locations.transfer_names[loc], amount) for loc, amount in row["transfers"].items()
         ]
     shortages.sort(key=lambda row: row["name"].casefold())
     return dict(

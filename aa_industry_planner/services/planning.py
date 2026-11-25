@@ -22,7 +22,7 @@ from aa_industry_planner.models import (
     UserPreferences,
 )
 
-from .inventory import inventory_by_location, stock_location_names
+from .inventory import inventory_by_location
 from .locations import InventoryLocations
 
 
@@ -231,6 +231,7 @@ def calculate_targets(
         "targets": [{"type_id": tid, "quantity": amount} for tid, amount in targets.items()],
         "calculated_at": timezone.now().isoformat(),
         "inventory_used": use_inventory,
+        "stock_elsewhere_scoped": True,
         "inventory_scope": "Stock counts toward production at each consuming job’s assigned structure and activity storage. Wrong-location stock shows possible transfers. This snapshot is not a stock reservation."
         if use_inventory
         else "Inventory is ignored for this calculation.",
@@ -261,15 +262,6 @@ def calculate_targets(
             for t, node in baseline.items()
             if node.required
         }
-    outside_ids = {
-        loc
-        for node in result.nodes.values()
-        for row in node.inventory_requirements
-        for loc in row.get("elsewhere", {})
-    }
-    location_names = locations.names | (
-        stock_location_names(user, outside_ids) if outside_ids else {}
-    )
     for node in snapshot["nodes"].values():
         node["input_inventory"] = []
         node["stock_locations"] = []
@@ -299,7 +291,11 @@ def calculate_targets(
                 for loc, amount in requirement["allocations"].items()
             ]
             elsewhere = [
-                {"location_id": int(loc), "name": location_names[int(loc)], "quantity": amount}
+                {
+                    "location_id": int(loc),
+                    "name": locations.transfer_names[int(loc)],
+                    "quantity": amount,
+                }
                 for loc, amount in requirement.get("elsewhere", {}).items()
             ]
             node["stock_locations"].extend(allocations)
