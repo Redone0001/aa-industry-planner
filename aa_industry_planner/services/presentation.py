@@ -37,7 +37,9 @@ def plan_views(snapshot, steps, checked=()):
     raw = snapshot.get("nodes", {})
     baseline = snapshot.get("before_purchases", {})
     purchases = snapshot.get("purchase_choices", {})
-    root_id = int(snapshot["product_id"])
+    roots = [int(row["type_id"]) for row in snapshot.get("targets", [])] or [
+        int(snapshot["product_id"])
+    ]
     nodes = {}
     for key in raw | baseline:
         tid = int(key)
@@ -45,7 +47,7 @@ def plan_views(snapshot, steps, checked=()):
         original = baseline.get(key, {})
         required = row.get("required", 0)
         covered_quantity = max(0, original.get("required", 0) - required)
-        if tid != root_id and not (required or covered_quantity):
+        if tid not in roots and not (required or covered_quantity):
             continue
         context = row.get("context") or {}
         recipe = row.get("recipe") or {}
@@ -172,7 +174,7 @@ def plan_views(snapshot, steps, checked=()):
                 x=PADDING + level * (NODE_WIDTH + COLUMN_GAP),
                 y=(height - column_height) / 2 + index * (NODE_HEIGHT + ROW_GAP),
                 depth=level,
-                shared=len(parents[tid]) > 1,
+                shared=len(parents[tid]) + (tid in roots) > 1,
             )
     seen = set()
 
@@ -198,11 +200,14 @@ def plan_views(snapshot, steps, checked=()):
             ],
         }
 
+    tree = branch(roots[0])
+    tree["additional_targets"] = [branch(tid) for tid in roots[1:]]
     graph = {
-        "root": root_id,
+        "root": roots[0],
+        "roots": roots,
         "nodes": list(nodes.values()),
         "edges": edges,
         "width": width,
         "height": height,
     }
-    return branch(root_id), graph
+    return tree, graph

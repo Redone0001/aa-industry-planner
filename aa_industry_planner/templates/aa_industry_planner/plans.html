@@ -1,22 +1,32 @@
 {% extends 'aa_industry_planner/base.html' %}
+{% load industry %}
 {% block industry_content %}
 <div class="aip-two-col">
   <section class="aip-panel card">
-    <div class="aip-eyebrow text-body-secondary">START A BUILD</div>
-    <h2 class="h5">What are we producing?</h2>
-    <p>Choose an item and quantity. Manufacturing blueprints default to ME 10 / TE 20; you can change individual blueprints in the plan.</p>
-    <form method="post">{% csrf_token %}{% include 'aa_industry_planner/form_fields.html' %}<button class="btn btn-primary">Calculate production chain →</button></form>
+    <h2 class="h5">New production plan</h2>
+    <p>Set the quantities you want to produce, then create one plan for all the items.</p>
+    <form method="post" data-plan-targets>
+      {% csrf_token %}
+      {{ targets.management_form }}{{ targets.non_form_errors }}
+      <div data-target-rows>
+        {% for target in targets %}{% include 'aa_industry_planner/plan_target_fields.html' %}{% endfor %}
+      </div>
+      <template data-target-template>{% include 'aa_industry_planner/plan_target_fields.html' with target=targets.empty_form %}</template>
+      <button class="btn btn-outline-primary btn-sm mb-3" type="button" data-add-target hidden>Add another item</button>
+      {% include 'aa_industry_planner/form_fields.html' %}
+      <button class="btn btn-primary">Create production plan</button>
+    </form>
   </section>
   <div>
     <section class="aip-panel card">
-      <h2 class="h5">Production plans</h2>
-      <div class="aip-list">{% for plan in plans %}<a href="{% url 'aa_industry_planner:plan' plan.pk %}"><div><strong>{{ plan.item_type.name }}</strong><small>{{ plan.name }} · {{ plan.calculated_at|date:'d M Y H:i' }}</small></div><span>{{ plan.quantity }} units →</span></a>{% empty %}<div class="aip-empty compact"><p>No active plans. Your builds will appear here.</p></div>{% endfor %}</div>
+      <div class="aip-section-heading"><h2 class="h5">Active plans</h2><a href="{% url 'aa_industry_planner:production_queue' %}">Combined view →</a></div>
+      <div class="aip-list">{% for plan in plans %}<a href="{% url 'aa_industry_planner:plan' plan.pk %}"><div><strong>{{ plan.name|default:plan.item_type.name }}</strong><small>{% include 'aa_industry_planner/plan_targets.html' %}</small></div><span>{{ plan.calculated_at|date:'d M Y H:i' }}</span></a>{% empty %}<div class="aip-empty compact"><p>No active plans.</p></div>{% endfor %}</div>
     </section>
     <section class="aip-panel card">
       <div class="aip-section-heading"><h2 class="h5">Archived plans</h2>{% if archived_plans %}<a class="btn btn-outline-danger btn-sm" href="{% url 'aa_industry_planner:delete_archived_plans' %}">Remove all archived plans</a>{% endif %}</div>
       <div class="list-group list-group-flush">
         {% for plan in archived_plans %}<div class="list-group-item px-0 d-flex align-items-center justify-content-between gap-3">
-          <a class="flex-grow-1" href="{% url 'aa_industry_planner:plan' plan.pk %}"><strong>{{ plan.item_type.name }} × {{ plan.quantity }}</strong><small>{{ plan.name }} · {{ plan.calculated_at|date:'d M Y H:i' }}</small></a>
+          <a class="flex-grow-1" href="{% url 'aa_industry_planner:plan' plan.pk %}"><strong>{{ plan.name|default:plan.item_type.name }}</strong><small>{% include 'aa_industry_planner/plan_targets.html' %}</small></a>
           <a class="btn btn-outline-danger btn-sm" href="{% url 'aa_industry_planner:delete_archived_plan' plan.pk %}" aria-label="Remove archived plan {{ plan.pk }}">Remove</a>
         </div>{% empty %}<p class="text-body-secondary mb-0">No archived plans.</p>{% endfor %}
       </div>

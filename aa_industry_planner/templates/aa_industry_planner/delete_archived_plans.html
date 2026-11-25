@@ -2,7 +2,7 @@
 {% block industry_content %}
 <section class="aip-panel card">
   <h2 class="h5">{% if selected_plan %}Remove archived plan?{% else %}Remove all archived plans?{% endif %}</h2>
-  {% if selected_plan %}<p>{{ selected_plan.item_type.name }} × {{ selected_plan.quantity }}{% if selected_plan.name %} · {{ selected_plan.name }}{% endif %}</p>{% else %}<p>{{ archived_count }} archived plan{{ archived_count|pluralize }} will be removed from your account. Active plans are kept.</p>{% endif %}
+  {% if selected_plan %}<p>{% if selected_plan.name %}{{ selected_plan.name }} · {% endif %}{% include 'aa_industry_planner/plan_targets.html' with plan=selected_plan %}</p>{% else %}<p>{{ archived_count }} archived plan{{ archived_count|pluralize }} will be removed from your account. Active plans are kept.</p>{% endif %}
   <p>This permanently removes the saved plans, their blueprint settings and job links. Imported industry jobs and inventory are kept.</p>
   <div class="aip-actions"><form method="post">{% csrf_token %}<button class="btn btn-danger" {% if not archived_count %}disabled{% endif %}>{% if selected_plan %}Remove plan{% else %}Remove {{ archived_count }} archived plan{{ archived_count|pluralize }}{% endif %}</button></form><a class="btn btn-secondary" href="{% url 'aa_industry_planner:plans' %}">Cancel</a></div>
 </section>

@@ -1,0 +1,12 @@
+<div class="row g-2 align-items-start mb-3" data-target-row {% if target.DELETE.value %}hidden{% endif %}>
+  {{ target.DELETE.as_hidden }}{{ target.non_field_errors }}
+  <div class="col-sm">
+    <label class="form-label" for="{{ target.item_type.id_for_label }}">{{ target.item_type.label }}</label>{{ target.item_type }}{{ target.item_type.errors }}
+  </div>
+  <div class="col-sm-3">
+    <label class="form-label" for="{{ target.quantity.id_for_label }}">{{ target.quantity.label }}</label>{{ target.quantity }}{{ target.quantity.errors }}
+  </div>
+  <div class="col-sm-auto pt-sm-4">
+    <button class="btn btn-outline-secondary btn-sm" type="button" data-remove-target hidden>Remove item</button>
+  </div>
+</div>

@@ -2,7 +2,7 @@
 {% load industry static %}
 {% block industry_content %}
 <div class="aip-section-heading">
-  <div><div class="aip-eyebrow text-body-secondary">PRODUCTION PLAN #{{ plan.pk }}</div><h2 class="h5">{{ plan.item_type.name }} <span class="text-body-secondary">× {{ plan.quantity }}</span></h2><p>{{ plan.name }} · Calculated {{ plan.calculated_at|date:'d M Y H:i' }} {% if plan.archived %}<span class="badge text-bg-secondary">Archived</span>{% endif %}</p></div>
+  <div><h2 class="h5">{{ plan.name|default:plan.item_type.name }}</h2><p>{% include 'aa_industry_planner/plan_targets.html' %}</p><small>Plan #{{ plan.pk }} · Calculated {{ plan.calculated_at|date:'d M Y H:i' }} {% if plan.archived %}<span class="badge text-bg-secondary">Archived</span>{% endif %}</small></div>
   <div class="aip-actions">
     {% if not plan.archived %}<form method="post" action="{% url 'aa_industry_planner:refresh_plan' plan.pk %}">{% csrf_token %}<button class="btn btn-primary">Refresh plan</button></form>{% endif %}
     <form method="post" action="{% url 'aa_industry_planner:archive_plan' plan.pk %}">{% csrf_token %}<button class="btn btn-secondary">{% if plan.archived %}Restore plan{% else %}Archive plan{% endif %}</button></form>

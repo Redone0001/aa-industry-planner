@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from eve_sde.models import BlueprintActivityProduct, ItemType
 
-from aa_industry_planner.engine import PlanningError, ProductionContext, Recipe, plan
+from aa_industry_planner.engine import PlanningError, ProductionContext, Recipe, plan_targets
 from aa_industry_planner.industry import (
     FitError,
     catalog,
@@ -16,6 +16,7 @@ from aa_industry_planner.models import (
     JobAllocation,
     PlanBlueprintOverride,
     PlanStep,
+    PlanTarget,
     ProductionPlan,
     SystemCostIndex,
     UserPreferences,
@@ -97,6 +98,15 @@ def calculate(
     user,
     type_id,
     quantity,
+    use_inventory=True,
+    **options,
+):
+    return calculate_targets(user, {type_id: quantity}, use_inventory, **options)
+
+
+def calculate_targets(
+    user,
+    targets,
     use_inventory=True,
     *,
     default_me=10,
@@ -194,29 +204,31 @@ def calculate(
     prices = {tid: p.adjusted_price for tid, p in price_rows.items()}
     recipes = SDERecipes(policies)
     stock = inventory_by_location(user, locations, include_elsewhere=True) if use_inventory else {}
-    root_scope = locations.item_scope(type_id)
+    locations.prime_items(targets)
+    target_scopes = {tid: locations.item_scope(tid) for tid in targets}
     policy_buys = {p.item_type_id for p in policies.values() if p.buy}
     buy_item_ids = set(buy_item_ids)
 
     def calculate_chain(buy):
-        return plan(
-            type_id,
-            quantity,
+        return plan_targets(
+            targets,
             recipes,
             context_for,
             buy=buy,
             prices=prices,
             stock_by_location=stock,
-            root_stock_scope=root_scope,
+            target_scopes=target_scopes,
         )
 
     result = calculate_chain(policy_buys | buy_item_ids)
     baseline = calculate_chain(policy_buys).nodes if buy_item_ids - policy_buys else {}
     type_ids = result.nodes.keys() | baseline.keys() | buy_item_ids
     names = dict(ItemType.objects.filter(pk__in=type_ids).values_list("id", "name"))
+    type_id, quantity = next(iter(targets.items()))
     snapshot = {
         "product_id": type_id,
         "quantity": quantity,
+        "targets": [{"type_id": tid, "quantity": amount} for tid, amount in targets.items()],
         "calculated_at": timezone.now().isoformat(),
         "inventory_used": use_inventory,
         "inventory_scope": "Stock counts toward production at each consuming job’s assigned structure and activity storage. Wrong-location stock shows possible transfers. This snapshot is not a stock reservation."
@@ -311,11 +323,21 @@ def calculate(
     return result, snapshot
 
 
-@transaction.atomic
 def create_plan(
     user,
     type_id,
     quantity,
+    name="",
+    use_inventory=True,
+    **options,
+):
+    return create_plan_for_targets(user, {type_id: quantity}, name, use_inventory, **options)
+
+
+@transaction.atomic
+def create_plan_for_targets(
+    user,
+    targets,
     name="",
     use_inventory=True,
     *,
@@ -323,15 +345,15 @@ def create_plan(
     default_te=20,
     blueprint_overrides=None,
 ):
-    result, snapshot = calculate(
+    result, snapshot = calculate_targets(
         user,
-        type_id,
-        quantity,
+        targets,
         use_inventory,
         default_me=default_me,
         default_te=default_te,
         blueprint_overrides=blueprint_overrides,
     )
+    (type_id, quantity), *additional = targets.items()
     production = ProductionPlan.objects.create(
         user=user,
         item_type_id=type_id,
@@ -341,6 +363,9 @@ def create_plan(
         use_inventory=use_inventory,
         default_material_efficiency=default_me,
         default_time_efficiency=default_te,
+    )
+    PlanTarget.objects.bulk_create(
+        PlanTarget(plan=production, item_type_id=tid, quantity=amount) for tid, amount in additional
     )
     save_blueprint_overrides(production, blueprint_overrides or {})
     write_steps(production, result, snapshot)
@@ -429,10 +454,11 @@ def refresh_plan(
             buy_item_ids.add(item_id)
         else:
             buy_item_ids.remove(item_id)
-    result, snapshot = calculate(
+    targets = {production.item_type_id: production.quantity}
+    targets.update(production.additional_targets.values_list("item_type_id", "quantity"))
+    result, snapshot = calculate_targets(
         user,
-        production.item_type_id,
-        production.quantity,
+        targets,
         use_inventory,
         default_me=default_me,
         default_te=default_te,

@@ -23,6 +23,34 @@ def release_after(job, now):
     return ceil((job.end_date - now).total_seconds())
 
 
+def saved_targets(snapshot):
+    if snapshot.get("targets"):
+        return snapshot["targets"]
+    if "product_id" in snapshot and "quantity" in snapshot:
+        return [{"type_id": snapshot["product_id"], "quantity": snapshot["quantity"]}]
+    return []
+
+
+def target_inventory(node):
+    return next(
+        (row for row in node.get("inventory_requirements", []) if row.get("consumer_id") is None),
+        None,
+    )
+
+
+def target_production(snapshot):
+    required = {}
+    for target in saved_targets(snapshot):
+        tid = target["type_id"]
+        node = snapshot.get("nodes", {}).get(str(tid), {})
+        direct = target_inventory(node)
+        stock = direct["from_stock"] if direct else node.get("from_stock", 0)
+        remaining = target["quantity"] - stock
+        if node.get("runs") and remaining > 0:
+            required[tid] = remaining
+    return required
+
+
 @dataclass
 class StepWork:
     step: PlanStep
@@ -43,17 +71,27 @@ class StepWork:
         total_runs = max(1, self.step.runs)
         return (quantity * runs + total_runs - 1) // total_runs
 
+    def inputs_for_batch(self, size):
+        # Apportion legacy totals across batches without rounding each one up.
+        return self.batch_inputs[size] | {
+            tid: self.scaled_input(quantity, self.pending_runs)
+            - self.scaled_input(quantity, self.pending_runs - size)
+            for tid, quantity in self.legacy_inputs.items()
+        }
+
+    def remaining_inputs(self):
+        totals = {
+            tid: self.scaled_input(amount, self.pending_runs)
+            for tid, amount in self.legacy_inputs.items()
+        }
+        for size, count in self.batches.items():
+            for tid, amount in self.batch_inputs[size].items():
+                totals[tid] = totals.get(tid, 0) + amount * count
+        return totals
+
     def next_batch(self, available):
         for size in self.batches:
-            inputs = self.batch_inputs[size]
-            if self.legacy_inputs:
-                # Older snapshots may only have total material requirements.
-                # Apportion each total across batches without rounding it up repeatedly.
-                inputs = inputs | {
-                    tid: self.scaled_input(quantity, self.pending_runs)
-                    - self.scaled_input(quantity, self.pending_runs - size)
-                    for tid, quantity in self.legacy_inputs.items()
-                }
+            inputs = self.inputs_for_batch(size)
             if all(
                 quantity <= self.stock[tid] + available[tid] for tid, quantity in inputs.items()
             ):
@@ -106,8 +144,8 @@ def prepare_step(step, needed, consumed, materials):
     )
 
 
-def remaining_work(steps, root_id):
-    """Calculate future demand starting at the final product and moving toward its inputs."""
+def remaining_work(steps, root_id=None, *, target_demand=None, include_external=False):
+    """Calculate future demand starting at the outputs and moving toward their inputs."""
     by_type = {step.item_type_id: step for step in steps}
     materials = {}
     consumers = defaultdict(list)
@@ -116,31 +154,34 @@ def remaining_work(steps, root_id):
         materials[tid] = {
             int(child): amount
             for child, amount in step.details.get("materials", {}).items()
-            if int(child) in by_type
+            if include_external or int(child) in by_type
         }
         for child in materials[tid]:
-            consumers[child].append(tid)
+            if child in by_type:
+                consumers[child].append(tid)
         for row in step.details.get("inventory_requirements", []):
             stock[tid, row.get("consumer_id")] += row.get("from_stock", 0)
 
     parents = {tid: len(consumers[tid]) for tid in by_type}
     queue = deque(tid for tid, count in parents.items() if not count)
-    demand, consumed = defaultdict(int), defaultdict(int)
-    if root_id in by_type:
-        demand[root_id] = by_type[root_id].output_quantity
+    if target_demand is None and root_id is not None:
+        target_demand = {root_id: by_type[root_id].output_quantity} if root_id in by_type else {}
+    demand, consumed = defaultdict(int, target_demand or {}), defaultdict(int)
     work = {}
     while queue:
         tid = queue.popleft()
         step = by_type[tid]
-        needed = step.output_quantity if root_id is None else min(step.output_quantity, demand[tid])
+        needed = (
+            step.output_quantity
+            if target_demand is None
+            else min(step.output_quantity, demand[tid])
+        )
         row = work[tid] = prepare_step(step, needed, consumed[tid], materials[tid])
+        remaining = row.remaining_inputs()
         for child, original in materials[tid].items():
-            if child in row.legacy_inputs:
-                future = row.scaled_input(original, row.pending_runs)
-            else:
-                future = sum(
-                    row.batch_inputs[size][child] * count for size, count in row.batches.items()
-                )
+            if child not in by_type:
+                continue
+            future = remaining.get(child, 0)
             # Installed downstream jobs use their original stock allocation first.
             # Neither that stock nor upstream output already used is available again.
             used = max(0, original - future)
@@ -219,7 +260,9 @@ def schedule_batches(work, consumers, free_slots, available, arrivals):
         enqueue(tid)
 
 
-def estimate_schedule(steps, preferences, running_jobs=(), now=None, root_id=None):
+def estimate_schedule(
+    steps, preferences, running_jobs=(), now=None, root_id=None, *, target_demand=None
+):
     now = now or timezone.now()
     slots = {activity: getattr(preferences, f"{activity}_slots") for activity in ACTIVITIES}
     job_releases = defaultdict(list)
@@ -237,7 +280,7 @@ def estimate_schedule(steps, preferences, running_jobs=(), now=None, root_id=Non
         )
         heapify(free_slots[activity])
 
-    work, consumers = remaining_work(steps, root_id)
+    work, consumers = remaining_work(steps, root_id, target_demand=target_demand)
     available = defaultdict(int)
     arrivals = []
     remaining_jobs = 0
@@ -297,7 +340,10 @@ def estimate_schedule(steps, preferences, running_jobs=(), now=None, root_id=Non
         elif not timing["reason"]:
             timing["reason"] = "Waiting for batch inputs or a slot with a known release time."
 
-    if root_id is None:
+    if target_demand is not None:
+        finishes = [work[tid].step.timing["finish_seconds"] for tid in target_demand if tid in work]
+        duration = None if None in finishes else max(finishes, default=0)
+    elif root_id is None:
         duration = max((row.step.timing["finish_seconds"] or 0 for row in work.values()), default=0)
         if any(row.step.timing["finish_seconds"] is None for row in work.values()):
             duration = None

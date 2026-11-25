@@ -7,6 +7,7 @@ urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("types/", views.type_search, name="type_search"),
     path("plans/", views.plans, name="plans"),
+    path("production-queue/", views.production_queue, name="production_queue"),
     path("plans/archived/remove/", views.delete_archived_plans, name="delete_archived_plans"),
     path("plans/<int:pk>/", views.plan_detail, name="plan"),
     path("plans/<int:pk>/refresh/", views.refresh_plan, name="refresh_plan"),

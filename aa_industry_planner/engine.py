@@ -229,7 +229,32 @@ def plan(
     stock_by_location=None,
     root_stock_scope=None,
 ):
-    if not 0 < quantity <= 10**12:
+    return plan_targets(
+        {product_id: quantity},
+        recipe_for,
+        context_for,
+        stock,
+        buy,
+        prices,
+        stock_by_location=stock_by_location,
+        target_scopes={product_id: root_stock_scope or StockScope()},
+    )
+
+
+def plan_targets(
+    targets,
+    recipe_for,
+    context_for,
+    stock=None,
+    buy=None,
+    prices=None,
+    *,
+    stock_by_location=None,
+    target_scopes=None,
+):
+    if not targets:
+        raise PlanningError("Add at least one item to the plan.")
+    if any(not 0 < quantity <= 10**12 for quantity in targets.values()):
         raise PlanningError("Quantity must be between 1 and 1,000,000,000,000.")
     stock, buy, prices = stock or {}, set(buy or ()), prices or {}
     recipes, graph, visiting = {}, {}, set()
@@ -258,7 +283,8 @@ def plan(
             visit(child)
         visiting.remove(type_id)
 
-    visit(product_id)
+    for product_id in targets:
+        visit(product_id)
     indegree = defaultdict(int)
     for children in graph.values():
         for child in children:
@@ -273,12 +299,12 @@ def plan(
             if not indegree[child]:
                 queue.append(child)
 
-    demand, nodes = defaultdict(int, {product_id: quantity}), {}
+    demand, nodes = defaultdict(int, targets), {}
     requirements = defaultdict(list)
     if stock_by_location is not None:
-        requirements[product_id].append(
-            stock_requirement(quantity, root_stock_scope or StockScope())
-        )
+        for product_id, quantity in targets.items():
+            scope = (target_scopes or {}).get(product_id, StockScope())
+            requirements[product_id].append(stock_requirement(quantity, scope))
     for type_id in order:
         required = demand[type_id]
         allocated = (

@@ -475,6 +475,29 @@ class ProductionPlan(models.Model):
     def calculated_at(self):
         return self.refreshed_at or self.created_at
 
+    @property
+    def targets(self):
+        return [
+            (self.item_type, self.quantity),
+            *((target.item_type, target.quantity) for target in self.additional_targets.all()),
+        ]
+
+
+class PlanTarget(models.Model):
+    """An additional output. ProductionPlan stores the first output of every plan."""
+
+    plan = models.ForeignKey(
+        ProductionPlan, on_delete=models.CASCADE, related_name="additional_targets"
+    )
+    item_type = models.ForeignKey(TYPE, on_delete=models.PROTECT)
+    quantity = models.PositiveBigIntegerField(validators=[MinValueValidator(1)])
+
+    class Meta:
+        ordering = ["pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["plan", "item_type"], name="aip_unique_plan_target")
+        ]
+
 
 class PlanBlueprintOverride(models.Model):
     plan = models.ForeignKey(

@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.2.3 counts empty slots and jobs awaiting delivery in the Alliance Auth sidebar badge. Version 0.2.2 added the badge preference and marked Discord-delivered notifications as read. Version 0.2.1 introduced delivery reminders for jobs that still show Active after their scheduled finish. Version 0.2.0 introduced batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
+Version 0.3.0 adds plans with multiple outputs and a production queue showing ready batches, deliveries, and materials to buy or move across active plans. Version 0.2.3 counts empty slots and jobs awaiting delivery in the Alliance Auth sidebar badge. Version 0.2.2 added the badge preference and marked Discord-delivered notifications as read. Version 0.2.1 introduced delivery reminders for jobs that still show Active after their scheduled finish. Version 0.2.0 introduced batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
 
 ## Features
 
@@ -10,7 +10,8 @@ Item search uses a dropdown with mouse and keyboard selection, a short typing de
 
 The interface inherits the selected Alliance Auth theme (including Flatly, Darkly and Materia). Cards, buttons, forms, tables, navigation and status badges use native Bootstrap components; charts and tree accents use the theme's CSS variables. Change the theme through AA's existing user settings menu.
 
-- Select an item and quantity; expand its manufacturing and reaction dependencies down to raw inputs. Refresh saved plans with current configuration; archive/restore them or remove one/all archived plans through a confirmation page.
+- Add items and quantities to a draft, then save them together as one production plan. Refresh saved plans with current configuration, archive or restore them, or remove archived plans through a confirmation page.
+- Open **Production queue** to see batches with inputs on hand, jobs to deliver, waiting steps, and what to buy or move across your active plans. Shared stock is counted once and the combined shopping list can be copied into EVE Multibuy.
 - Aggregate shared components before sizing jobs, allocate stock once within a plan at each consuming job’s permitted locations, and show a collapsible dependency tree, a zoomable graph with shared inputs and item inspection, and a numbered production sequence.
 - Set buy/import boundaries and an explicit recipe in item policies. Manufacturing plans default to blueprint ME 10 / TE 20, with plan defaults and individual blueprint overrides editable inside the planner. Reactions ignore ME/TE. Set maximum reaction runs or duration per job and effective character time bonuses in Configuration.
 - Select structure hulls, installed service modules, online states and industry rigs in Django admin. Derive product-specific material/time/cost multipliers from CCP's SDE, including security and Thukker/reactor rules. Restrict facilities to AA groups and let users assign locations per activity or product group.
@@ -26,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.3"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.3"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.3"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -52,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.3" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"

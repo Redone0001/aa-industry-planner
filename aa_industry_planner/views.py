@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -23,6 +24,7 @@ from .forms import (
     OperationsForm,
     PlanForm,
     PlanSettingsForm,
+    PlanTargetFormSet,
     PolicyForm,
     PreferencesForm,
     StorageLocationForm,
@@ -61,11 +63,12 @@ from .services.inventory import (
 from .services.job_assignments import annotate_assignments
 from .services.jobs import allocate_job, job_outputs, reconcile_jobs, unallocate_job
 from .services.locations import InventoryLocations
-from .services.planning import create_plan
+from .services.planning import create_plan_for_targets
 from .services.planning import refresh_plan as refresh_production_plan
 from .services.presentation import fee_presentation, plan_views
+from .services.production_queue import production_queue as build_production_queue
 from .services.readiness import annotate_steps, multibuy_line, multibuy_text
-from .services.scheduling import estimate_schedule
+from .services.scheduling import estimate_schedule, target_production
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
 
@@ -84,11 +87,17 @@ def page(request, template, **context):
     return render(request, f"aa_industry_planner/{template}.html", context)
 
 
+def user_plans(user):
+    return (
+        ProductionPlan.objects.filter(user=user)
+        .select_related("item_type")
+        .prefetch_related("additional_targets__item_type")
+    )
+
+
 @planner_access
 def dashboard(request):
-    plans = ProductionPlan.objects.filter(user=request.user, archived=False).select_related(
-        "item_type"
-    )
+    plans = user_plans(request.user).filter(archived=False).defer("snapshot")
     tasks = (
         ReplenishmentTask.objects.filter(watch__user=request.user)
         .exclude(state="resolved")
@@ -115,13 +124,31 @@ def type_search(request):
 
 @planner_access
 def plans(request):
-    form = PlanForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
+    data = request.POST if request.method == "POST" else None
+    form = PlanForm(data)
+    if data is not None and "targets-TOTAL_FORMS" not in data and "item_type" in data:
+        # Accept single-item submissions from an already-open production form.
+        data = data.copy()
+        data.update(
+            {
+                "targets-TOTAL_FORMS": 1,
+                "targets-INITIAL_FORMS": 0,
+                "targets-0-item_type": data["item_type"],
+                "targets-0-quantity": data.get("quantity", ""),
+            }
+        )
+    targets = PlanTargetFormSet(data, prefix="targets")
+    if request.method == "POST" and all((form.is_valid(), targets.is_valid())):
+        quantities = {}
+        for row in targets:
+            if not row.cleaned_data or row.cleaned_data.get("DELETE"):
+                continue
+            tid = row.cleaned_data["item_type"].pk
+            quantities[tid] = quantities.get(tid, 0) + row.cleaned_data["quantity"]
         try:
-            production = create_plan(
+            production = create_plan_for_targets(
                 request.user,
-                form.cleaned_data["item_type"].pk,
-                form.cleaned_data["quantity"],
+                quantities,
                 form.cleaned_data["name"],
                 form.cleaned_data["use_inventory"],
                 default_me=form.cleaned_data["default_material_efficiency"],
@@ -130,22 +157,39 @@ def plans(request):
             return redirect("aa_industry_planner:plan", pk=production.pk)
         except PlanningError as exc:
             form.add_error(None, str(exc))
+    saved = user_plans(request.user).defer("snapshot")
     return page(
         request,
         "plans",
         form=form,
-        plans=ProductionPlan.objects.filter(user=request.user, archived=False)
-        .select_related("item_type")
-        .defer("snapshot"),
-        archived_plans=ProductionPlan.objects.filter(user=request.user, archived=True)
-        .select_related("item_type")
-        .defer("snapshot"),
+        targets=targets,
+        plans=saved.filter(archived=False),
+        archived_plans=saved.filter(archived=True),
+    )
+
+
+@planner_access
+def production_queue(request):
+    plans = user_plans(request.user).filter(archived=False).order_by("created_at", "pk")
+    if not plans.exists():
+        return page(request, "production_queue")
+    reconcile_jobs(request.user)
+    steps = PlanStep.objects.select_related("item_type").prefetch_related("allocations__job")
+    plans = list(plans.prefetch_related(Prefetch("steps", queryset=steps)))
+    queue = build_production_queue(request.user, plans)
+    return page(
+        request,
+        "production_queue",
+        plans=plans,
+        capacity=capacity_status(request.user),
+        multibuy=multibuy_text(queue["shortages"]),
+        **queue,
     )
 
 
 @planner_access
 def plan_detail(request, pk):
-    production = get_object_or_404(ProductionPlan, pk=pk, user=request.user)
+    production = get_object_or_404(user_plans(request.user), pk=pk)
     return _plan_page(request, production)
 
 
@@ -173,7 +217,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
     capacity = capacity_status(request.user, preferences)
     timing = estimate_schedule(
-        steps, preferences, capacity["jobs"], root_id=production.item_type_id
+        steps, preferences, capacity["jobs"], target_demand=target_production(snapshot)
     )
 
     tree, dependency_graph = plan_views(
@@ -355,7 +399,7 @@ def set_plan_purchase(request, pk, item_id):
 def delete_archived_plans(request, pk=None):
     candidates = ProductionPlan.objects.filter(user=request.user, archived=True)
     selected = (
-        get_object_or_404(candidates.select_related("item_type").defer("snapshot"), pk=pk)
+        get_object_or_404(user_plans(request.user).filter(archived=True).defer("snapshot"), pk=pk)
         if pk is not None
         else None
     )

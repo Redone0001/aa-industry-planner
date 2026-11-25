@@ -1,0 +1,1 @@
+{% load industry %}{% for item, amount in plan.targets %}{{ item.name }} × {{ amount|quantity }}{% if not forloop.last %} · {% endif %}{% endfor %}

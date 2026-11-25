@@ -21,7 +21,10 @@
   </div>
   <div id="plan-tree-pane" data-tree-pane>
     <div class="aip-actions mb-3"><button class="btn btn-secondary btn-sm" type="button" data-tree-top>Top level</button><button class="btn btn-secondary btn-sm" type="button" data-expand-tree>Expand all</button><small>Shared entries link to their full branch. “This branch” and “Plan total” distinguish local and combined demand.</small></div>
-    <div class="aip-tree">{% include 'aa_industry_planner/tree_node.html' with branch=tree %}</div>
+    <div class="aip-tree">
+      {% include 'aa_industry_planner/tree_node.html' with branch=tree %}
+      {% for target_branch in tree.additional_targets %}{% include 'aa_industry_planner/tree_node.html' with branch=target_branch %}{% endfor %}
+    </div>
   </div>
   {{ dependency_graph|json_script:'industry-dependency-graph' }}
 </section>

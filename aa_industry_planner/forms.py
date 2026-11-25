@@ -62,10 +62,25 @@ class StyledFormMixin:
             field.widget.attrs["class"] = widget_class
 
 
-class PlanForm(StyledFormMixin, forms.Form):
+class PlanTargetForm(StyledFormMixin, forms.Form):
     item_type = TypeField(label="Item to produce")
     quantity = forms.IntegerField(min_value=1, max_value=10**12, initial=1)
-    name = forms.CharField(max_length=200, required=False)
+
+
+PlanTargetFormSet = forms.formset_factory(
+    PlanTargetForm,
+    extra=0,
+    can_delete=True,
+    min_num=1,
+    max_num=50,
+    validate_min=True,
+    validate_max=True,
+    absolute_max=50,
+)
+
+
+class PlanForm(StyledFormMixin, forms.Form):
+    name = forms.CharField(label="Plan name (optional)", max_length=200, required=False)
     default_material_efficiency = forms.IntegerField(
         label="Default blueprint ME (%)",
         min_value=0,

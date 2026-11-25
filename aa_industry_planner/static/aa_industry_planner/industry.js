@@ -12,13 +12,14 @@
     else link.removeAttribute("aria-current");
   });
   const typeSearchCache = new Map();
-  app.querySelectorAll("[data-type-search]").forEach((input, index) => {
+  let searchIndex = 0;
+  const attachItemSearch = input => {
     const wrapper = document.createElement("div");
     wrapper.className = "position-relative";
     input.replaceWith(wrapper);
     wrapper.append(input);
     const list = document.createElement("div");
-    list.id = `industry-type-options-${index}`;
+    list.id = `industry-type-options-${searchIndex++}`;
     list.className = "dropdown-menu w-100 p-0";
     list.style.maxHeight = "18rem";
     list.style.overflowY = "auto";
@@ -135,6 +136,49 @@
         list.children[active].scrollIntoView({block: "nearest"});
       }
     });
+  };
+  app.querySelectorAll("[data-type-search]").forEach(attachItemSearch);
+  app.querySelectorAll("[data-plan-targets]").forEach(form => {
+    const rows = form.querySelector("[data-target-rows]");
+    const template = form.querySelector("[data-target-template]");
+    const add = form.querySelector("[data-add-target]");
+    const total = form.elements["targets-TOTAL_FORMS"];
+    const limit = Number(form.elements["targets-MAX_NUM_FORMS"].value || 50);
+    const visibleRows = () => [...rows.children].filter(row => !row.hidden);
+    const update = () => {
+      const visible = visibleRows();
+      add.disabled = visible.length >= limit;
+      visible.forEach(row => {
+        row.querySelector("[data-remove-target]").hidden = visible.length === 1;
+      });
+    };
+    add.hidden = false;
+    add.addEventListener("click", () => {
+      const spare = [...rows.children].find(row => row.hidden);
+      const index = spare ? spare.querySelector("[name$='-DELETE']").name.split("-")[1] : total.value;
+      const fields = document.createElement("template");
+      fields.innerHTML = template.innerHTML.replaceAll("__prefix__", index);
+      const row = fields.content.firstElementChild;
+      if (spare) spare.replaceWith(row);
+      else {
+        rows.append(row);
+        total.value = Number(total.value) + 1;
+      }
+      const input = row.querySelector("[data-type-search]");
+      attachItemSearch(input);
+      update();
+      input.focus();
+    });
+    rows.addEventListener("click", event => {
+      const remove = event.target.closest("[data-remove-target]");
+      if (!remove) return;
+      const row = remove.closest("[data-target-row]");
+      row.querySelector("[name$='-DELETE']").value = "on";
+      row.hidden = true;
+      update();
+      add.focus();
+    });
+    update();
   });
   app.querySelectorAll("[data-industry-assignment]").forEach(form => {
     const activity = form.querySelector("[data-assignment-activity]");

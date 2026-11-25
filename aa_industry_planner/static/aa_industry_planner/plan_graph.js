@@ -259,7 +259,7 @@
       button.classList.toggle("btn-primary", active); button.classList.toggle("btn-outline-primary", !active);
       button.setAttribute("aria-pressed", String(active));
     });
-    if (view === "graph" && !initialized) requestAnimationFrame(readable);
+    if (view === "graph" && !initialized) requestAnimationFrame(data.roots?.length > 1 ? fit : readable);
   };
   panel.querySelectorAll("[data-plan-view]").forEach(button => button.addEventListener("click", () => {
     setView(button.dataset.planView);

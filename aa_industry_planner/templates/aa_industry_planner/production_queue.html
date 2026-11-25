@@ -1,0 +1,52 @@
+{% extends 'aa_industry_planner/base.html' %}
+{% load industry static %}
+{% block industry_content %}
+<div class="aip-section-heading">
+  <div><h2 class="h5">Production queue</h2>{% if plans %}<p>{{ plans|length }} active plan{{ plans|length|pluralize }}</p>{% endif %}</div>
+  <a href="{% url 'aa_industry_planner:plans' %}">Manage plans →</a>
+</div>
+{% if plans %}
+<section class="aip-panel card" id="ready-to-start">
+  <h3 class="h5">Inputs ready</h3>
+  <p>Stock that fulfils requested outputs is set aside first. The queue then shows one batch per step, oldest plans first.</p>
+  <p class="form-text">{% for row in capacity.rows %}{{ row.label }} {{ row.idle }} / {{ row.slots }} slots free{% if not forloop.last %} · {% endif %}{% endfor %}{% if not capacity.fresh %} · Job imports are missing or out of date{% endif %}</p>
+  {% include 'aa_industry_planner/queue_steps.html' with rows=ready empty='No batches have all their inputs at the configured locations.' %}
+</section>
+
+{% if delivery %}<section class="aip-panel card" id="ready-to-deliver">
+  <h3 class="h5">Ready to deliver</h3>
+  {% include 'aa_industry_planner/queue_steps.html' with rows=delivery %}
+</section>{% endif %}
+
+<section class="aip-panel card" id="acquisitions" data-buy-list>
+  <div class="aip-section-heading"><h3 class="h5">Materials to buy or move</h3>{% if multibuy %}<button type="button" class="btn btn-outline-primary btn-sm" data-copy-multibuy>Copy combined Multibuy</button>{% endif %}</div>
+  <p>Remaining requirements from the saved plans, after linked jobs and available stock. Deliver jobs and refresh inventory to update this list.</p>
+  <p data-copy-status role="status" class="form-text"></p>
+  {% if shortages %}<div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead><tr><th scope="col">Item</th><th scope="col" class="number">Buy</th><th scope="col" class="number">Move</th><th scope="col">Plans needing it</th></tr></thead>
+    <tbody>{% for row in shortages %}<tr {% if row.missing %}data-buy-line="{{ row.multibuy_line }}"{% endif %}>
+      <th scope="row">{{ row.name }}{% for location, amount in row.transfers %}<small>{{ amount|quantity }} at {{ location }}</small>{% endfor %}</th>
+      <td class="number">{{ row.missing|quantity }}</td><td class="number">{{ row.move|quantity }}</td>
+      <td>{% for entry in row.plans %}<div><a href="{% url 'aa_industry_planner:plan' entry.plan.pk %}">{{ entry.plan.name|default:entry.plan.item_type.name }}</a> <span class="text-body-secondary">{% if entry.buy %}· Buy {{ entry.buy|quantity }}{% endif %}{% if entry.move %} · Move {{ entry.move|quantity }}{% endif %}</span></div>{% endfor %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="text-body-secondary mb-0">No outstanding purchases or transfers.</p>{% endif %}
+  {% if multibuy %}<details class="aip-details"><summary>Multibuy text</summary><textarea class="form-control" rows="5" readonly aria-label="Combined EVE Multibuy list" data-multibuy-text>{{ multibuy }}</textarea></details>{% endif %}
+</section>
+
+{% if running %}<section class="aip-panel card" id="running-jobs">
+  <h3 class="h5">Jobs in progress</h3>
+  {% include 'aa_industry_planner/queue_steps.html' with rows=running %}
+</section>{% endif %}
+
+{% if waiting %}<section class="aip-panel card" id="waiting-steps">
+  <h3 class="h5">Waiting steps</h3>
+  {% include 'aa_industry_planner/queue_steps.html' with rows=waiting %}
+</section>{% endif %}
+
+<details class="aip-panel card">
+  <summary class="h6 mb-0">Active plans</summary>
+  <ul class="mt-3 mb-0">{% for plan in plans %}<li><a href="{% url 'aa_industry_planner:plan' plan.pk %}">{{ plan.name|default:plan.item_type.name }}</a> · {% include 'aa_industry_planner/plan_targets.html' %}</li>{% endfor %}</ul>
+</details>
+{% else %}<section class="aip-empty"><h3 class="h5">No active plans</h3><a class="btn btn-primary" href="{% url 'aa_industry_planner:plans' %}">Create a production plan</a></section>{% endif %}
+{% endblock %}
+{% block extra_javascript %}{{ block.super }}<script src="{% static 'aa_industry_planner/plan_controls.js' %}?v={{ industry_version }}" defer></script>{% endblock %}
