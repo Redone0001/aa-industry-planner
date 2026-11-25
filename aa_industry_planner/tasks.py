@@ -175,8 +175,10 @@ def evaluate_all_watches():
     from django.db.models import Q
 
     from .services.capacity import evaluate_slot_warnings
+    from .services.notifications import remind_overdue_jobs
     from .services.watches import evaluate_watches
 
+    remind_overdue_jobs()
     for user in (
         get_user_model()
         .objects.filter(

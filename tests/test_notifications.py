@@ -6,7 +6,15 @@ import pytest
 from django.utils import timezone
 
 from aa_industry_planner.models import Notification, NotificationPreferences, PlannerConfiguration
-from aa_industry_planner.services.notifications import discord_embed, emit, send_discord
+from aa_industry_planner.services.notifications import (
+    discord_embed,
+    emit,
+    remind_overdue_jobs,
+    send_discord,
+)
+from aa_industry_planner.tasks import evaluate_all_watches
+
+from .test_services import make_job
 
 pytestmark = pytest.mark.django_db
 
@@ -19,6 +27,50 @@ def test_notifications_are_idempotent_and_preferences_are_respected(user):
     prefs.inventory_low = False
     prefs.save()
     assert emit(user, "inventory_low", "watch:1:low", "Low", "Low") is None
+
+
+def test_periodic_checks_remind_at_finish_time_without_a_new_import(
+    user, source, monkeypatch, django_capture_on_commit_callbacks
+):
+    finish = timezone.now()
+    job = make_job(user, source, end_date=finish)
+    NotificationPreferences.objects.create(user=user, discord_dm=True)
+    deliver = Mock()
+    monkeypatch.setattr("aa_industry_planner.tasks.deliver_notification.delay", deliver)
+    monkeypatch.setattr(timezone, "now", lambda: finish - timezone.timedelta(seconds=1))
+    evaluate_all_watches.run()
+    assert not Notification.objects.exists()
+    monkeypatch.setattr(timezone, "now", lambda: finish)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        evaluate_all_watches.run()
+        evaluate_all_watches.run()
+    reminder = Notification.objects.get(kind="job_finished")
+    assert reminder.event_key == f"job:{job.job_id}:finished"
+    assert "scheduled to finish" in reminder.message
+    deliver.assert_called_once_with(reminder.pk)
+
+
+def test_reminder_skips_paused_cancelled_and_already_delivered_jobs(user, source):
+    now = timezone.now()
+    for tid, status in enumerate(["paused", "cancelled", "reverted", "ready", "delivered"], 1):
+        make_job(user, source, job_id=tid, status=status, end_date=now)
+    remind_overdue_jobs(now=now)
+    assert not Notification.objects.exists()
+
+
+def test_reminder_honors_completion_preference_and_current_source_access(user, source):
+    now = timezone.now()
+    make_job(user, source, end_date=now)
+    pref = NotificationPreferences.objects.create(user=user, job_finished=False)
+    remind_overdue_jobs(now=now)
+    assert not Notification.objects.exists()
+
+    pref.job_finished = True
+    pref.save(update_fields=["job_finished"])
+    user.character_ownerships.all().delete()
+    remind_overdue_jobs(now=now)
+    assert not Notification.objects.exists()
 
 
 def test_discord_embed_includes_title_color_time_and_link(user):

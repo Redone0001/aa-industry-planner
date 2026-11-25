@@ -234,7 +234,10 @@ def test_sde_alternative_recipes_require_explicit_choice(user, recipes):
         calculate(user, 1, 1)
 
 
-def test_full_sync_lifecycle_is_idempotent_and_completes_linked_step(user, source, recipes):
+@pytest.mark.parametrize("use_finish_time", [False, True])
+def test_full_sync_lifecycle_is_idempotent_and_completes_linked_step(
+    user, source, recipes, use_finish_time
+):
     production = create_plan(user, 1, 2)
     now = timezone.now()
     data = {
@@ -265,6 +268,15 @@ def test_full_sync_lifecycle_is_idempotent_and_completes_linked_step(user, sourc
         assert Asset.objects.count() == 1
         assert not Notification.objects.filter(kind="job_finished").exists()
         assert production.steps.get(item_type_id=1).progress == 0
+        if use_finish_time:
+            with patch.object(timezone, "now", return_value=now + timezone.timedelta(hours=1)):
+                sync_source(source, api)
+                sync_source(source, api)
+            reminder = Notification.objects.get(kind="job_finished")
+            assert reminder.title == "Industry job delivery reminder"
+            assert "Check Industry in EVE" in reminder.message
+            assert IndustryJob.objects.get().status == "active"
+            assert production.steps.get(item_type_id=1).progress == 0
         data["status"] = "ready"
         sync_source(source, api)
         assert production.steps.get(item_type_id=1).progress == 100

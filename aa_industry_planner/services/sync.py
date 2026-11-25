@@ -17,6 +17,7 @@ from aa_industry_planner.providers import ESI, missing_scopes, required_scopes
 
 from .inventory import authorized_sources
 from .jobs import reconcile_jobs
+from .notifications import notify_job_finished, remind_overdue_jobs
 
 
 def validate_source(source, api):
@@ -118,15 +119,7 @@ def sync_source(source, api=None):
                 not existing and source.last_jobs_sync and job.end_date >= source.last_jobs_sync
             )
             if job.finished and newly_finished:
-                from .notifications import emit
-
-                emit(
-                    source.user,
-                    "job_finished",
-                    f"job:{job.job_id}:finished",
-                    "Industry job finished",
-                    f"Job #{job.job_id} has finished ({job.runs:,} runs). Status: {job.status}. Ready jobs must still be delivered in EVE.",
-                )
+                notify_job_finished(job)
         InventorySource.objects.filter(pk=source.pk).update(
             last_assets_sync=timestamp,
             last_jobs_sync=timestamp,
@@ -134,6 +127,8 @@ def sync_source(source, api=None):
             sync_error_since=None,
             sync_failed_at=None,
         )
+    source._sync_stage = "checking job delivery reminders"
+    remind_overdue_jobs(user=source.user, now=timestamp)
     source._sync_stage = "updating plan progress"
     reconcile_jobs(source.user)
     from .watches import evaluate_watches

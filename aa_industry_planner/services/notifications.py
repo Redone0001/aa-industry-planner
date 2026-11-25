@@ -1,9 +1,20 @@
+from datetime import UTC
+
 from django.conf import settings
 from django.db import transaction
+from django.db.models import CharField, Exists, OuterRef, Value
+from django.db.models.functions import Cast, Concat
 from django.urls import reverse
 from django.utils import timezone
 
-from aa_industry_planner.models import Notification, NotificationPreferences, PlannerConfiguration
+from aa_industry_planner.models import (
+    IndustryJob,
+    Notification,
+    NotificationPreferences,
+    PlannerConfiguration,
+)
+
+from .inventory import authorized_sources
 
 
 def emit(user, kind, event_key, title, message):
@@ -18,6 +29,58 @@ def emit(user, kind, event_key, title, message):
 
         transaction.on_commit(lambda: deliver_notification.delay(notification.pk))
     return notification
+
+
+def notify_job_finished(job):
+    if job.finished:
+        title = "Industry job finished"
+        message = f"Job #{job.job_id} has finished ({job.runs:,} runs)."
+        if job.status == "ready":
+            message += " Deliver it in EVE to collect its output."
+    else:
+        title = "Industry job delivery reminder"
+        finish = job.end_date.astimezone(UTC).strftime("%d %b %Y at %H:%M UTC")
+        message = (
+            f"Job #{job.job_id} ({job.runs:,} runs) was scheduled to finish on {finish}. "
+            "Check Industry in EVE and deliver the job when ready."
+        )
+    return emit(job.user, "job_finished", f"job:{job.job_id}:finished", title, message)
+
+
+def remind_overdue_jobs(*, user=None, now=None):
+    """Use the latest known active status even when no fresh ESI response is available."""
+    jobs = (
+        IndustryJob.objects.filter(
+            status="active",
+            end_date__lte=now or timezone.now(),
+            source__enabled=True,
+            user__is_active=True,
+        )
+        .exclude(user__notificationpreferences__job_finished=False)
+        .alias(
+            finish_event_key=Concat(Value("job:"), Cast("job_id", CharField()), Value(":finished"))
+        )
+        .filter(
+            ~Exists(
+                Notification.objects.filter(
+                    user_id=OuterRef("user_id"), event_key=OuterRef("finish_event_key")
+                )
+            )
+        )
+        .select_related("user")
+    )
+    if user is not None:
+        jobs = jobs.filter(user=user)
+    allowed = {}
+    for job in jobs.iterator():
+        if job.user_id not in allowed:
+            allowed[job.user_id] = (
+                set(authorized_sources(job.user).values_list("pk", flat=True))
+                if job.user.has_perm("aa_industry_planner.access_planner")
+                else set()
+            )
+        if job.source_id in allowed[job.user_id]:
+            notify_job_finished(job)
 
 
 def discord_embed(notification):
