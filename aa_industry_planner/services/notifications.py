@@ -15,6 +15,7 @@ from aa_industry_planner.models import (
 )
 
 from .inventory import authorized_sources
+from .jobs import active_past_finish
 
 
 def emit(user, kind, event_key, title, message):
@@ -51,8 +52,7 @@ def remind_overdue_jobs(*, user=None, now=None):
     """Use the latest known active status even when no fresh ESI response is available."""
     jobs = (
         IndustryJob.objects.filter(
-            status="active",
-            end_date__lte=now or timezone.now(),
+            active_past_finish(now or timezone.now()),
             source__enabled=True,
             user__is_active=True,
         )

@@ -8,6 +8,10 @@ from aa_industry_planner.models import JOB_ACTIVITIES, IndustryJob, JobAllocatio
 from .inventory import authorized_sources
 
 
+def active_past_finish(now):
+    return Q(status="active", end_date__lte=now)
+
+
 def job_output(job, products=None):
     from eve_sde.models import BlueprintActivityProduct
 

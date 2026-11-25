@@ -15,7 +15,12 @@ from aa_industry_planner.models import (
     SlotMonitorState,
     UserPreferences,
 )
-from aa_industry_planner.services.capacity import capacity_status, evaluate_slot_warnings
+from aa_industry_planner.services.capacity import (
+    capacity_status,
+    evaluate_slot_warnings,
+    sidebar_slot_count,
+)
+from aa_industry_planner.services.notifications import remind_overdue_jobs
 from aa_industry_planner.tasks import evaluate_all_watches
 
 pytestmark = pytest.mark.django_db
@@ -226,6 +231,46 @@ def test_sidebar_hides_badge_when_selected_slots_are_all_in_use(user, fresh, cli
         if item.menu_item.text == "Industry Planner"
     )
     assert entry.count is None
+
+
+@pytest.mark.parametrize("running", [20, 25])
+def test_sidebar_counts_five_finished_jobs_at_or_above_reaction_capacity(user, fresh, running):
+    UserPreferences.objects.create(user=user, reaction_slots=20, sidebar_slot_badge="reaction")
+    now = timezone.now()
+    jobs = [add_job(user, fresh, activity=9 if i % 2 else 11) for i in range(running)]
+    assert sidebar_slot_count(user, now=now) is None
+
+    ready = IndustryJob.objects.filter(pk__in=[job.pk for job in jobs[:2]])
+    overdue = IndustryJob.objects.filter(pk__in=[job.pk for job in jobs[2:5]])
+    ready.update(status="ready")
+    overdue.update(end_date=now)
+    assert sidebar_slot_count(user, now=now - timedelta(microseconds=1)) == 2
+    assert sidebar_slot_count(user, now=now) == 5
+
+    remind_overdue_jobs(user=user, now=now)
+    assert Notification.objects.filter(user=user, kind="job_finished").update(read_at=now) == 3
+    overdue.update(status="ready")
+    assert sidebar_slot_count(user, now=now) == 5
+
+    ready.update(status="delivered")
+    overdue.update(status="delivered")
+    assert sidebar_slot_count(user, now=now) == (5 if running == 20 else None)
+
+
+def test_sidebar_combines_empty_slots_and_deliveries_for_selected_activities(user, fresh):
+    preferences = UserPreferences.objects.create(user=user, reaction_slots=4)
+    now = timezone.now()
+    add_job(user, fresh, status="ready")
+    for status in ["paused", "cancelled"]:
+        job = add_job(user, fresh, status=status)
+        IndustryJob.objects.filter(pk=job.pk).update(end_date=now)
+    add_job(user, fresh, activity=11)
+    add_job(user, fresh, activity=9, status="ready")
+
+    assert sidebar_slot_count(user, now=now) == 4  # Two empty slots and two deliveries.
+    preferences.sidebar_slot_badge = "reaction"
+    preferences.save(update_fields=["sidebar_slot_badge"])
+    assert sidebar_slot_count(user, now=now) == 3
 
 
 def test_character_management_lives_in_configuration_and_inventory_keeps_counts(

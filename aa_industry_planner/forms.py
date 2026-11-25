@@ -271,7 +271,7 @@ class OperationsForm(StyledFormMixin, forms.ModelForm):
         label="Sidebar badge",
         choices=UserPreferences.SidebarSlotBadge.choices,
         required=False,
-        help_text="Choose which unused slots to count next to Industry Planner in the sidebar.",
+        help_text="Choose which activities to count for empty slots and jobs to deliver in the sidebar.",
     )
 
     class Meta:

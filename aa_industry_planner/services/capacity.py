@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from allianceauth.authentication.models import CharacterOwnership
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from aa_industry_planner.models import (
@@ -17,6 +17,7 @@ from aa_industry_planner.models import (
 )
 
 from .inventory import authorized_sources
+from .jobs import active_past_finish
 
 ACTIVITIES = ("manufacturing", "reaction")
 
@@ -75,7 +76,7 @@ def capacity_status(user, preferences=None, now=None):
     return dict(rows=_slot_rows(preferences, counts), jobs=jobs, fresh=fresh, sources=sources)
 
 
-def sidebar_slot_count(user):
+def sidebar_slot_count(user, *, now=None):
     preferences = UserPreferences.objects.filter(user=user).first()
     if preferences is None:
         return None
@@ -85,22 +86,27 @@ def sidebar_slot_count(user):
         if badge == UserPreferences.SidebarSlotBadge.BOTH
         else tuple(activity for activity in ACTIVITIES if activity == badge)
     )
-    if not any(getattr(preferences, f"{activity}_slots") for activity in activities):
+    if not activities:
         return None
 
-    # The Auth sidebar runs on every page. Aggregate jobs without loading full rows.
-    occupied = (
+    deliveries = Q(status="ready") | active_past_finish(now or timezone.now())
+    jobs = (
         _owned_jobs(user, authorized_sources(user).exclude(kind="manual"))
-        .filter(status__in=["active", "paused"])
         .order_by()
-        .values("activity_id", "status")
-        .annotate(total=Count("pk"))
+        .values("activity_id")
+        .annotate(total=Count("pk"), due=Count("pk", filter=deliveries))
     )
-    counts = Counter()
-    for row in occupied:
-        counts[JOB_ACTIVITIES[row["activity_id"]], row["status"]] += row["total"]
+    total, due = Counter(), Counter()
+    for row in jobs:
+        activity = JOB_ACTIVITIES[row["activity_id"]]
+        total[activity] += row["total"]
+        due[activity] += row["due"]
+    # A job awaiting delivery contributes one action instead of a second empty slot.
     return (
-        sum(row["idle"] for row in _slot_rows(preferences, counts) if row["activity"] in activities)
+        sum(
+            due[activity] + max(0, getattr(preferences, f"{activity}_slots") - total[activity])
+            for activity in activities
+        )
         or None
     )
 
