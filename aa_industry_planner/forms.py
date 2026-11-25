@@ -262,6 +262,14 @@ class StorageLocationForm(StyledFormMixin, forms.ModelForm):
 
 
 class PreferencesForm(StyledFormMixin, forms.ModelForm):
+    gas_decompression_yield = forms.IntegerField(
+        label="Gas decompression yield (%)",
+        min_value=90,
+        max_value=95,
+        required=False,
+        help_text="Enter a whole percentage from 90 to 95 for compressed gas purchases.",
+    )
+
     class Meta:
         model = UserPreferences
         labels = {
@@ -275,10 +283,14 @@ class PreferencesForm(StyledFormMixin, forms.ModelForm):
         fields = [
             "reaction_runs",
             "reaction_hours",
+            "gas_decompression_yield",
             "manufacturing_time_multiplier",
             "reaction_time_multiplier",
             "alpha_clone_tax",
         ]
+
+    def clean_gas_decompression_yield(self):
+        return self.cleaned_data["gas_decompression_yield"] or self.instance.gas_decompression_yield
 
 
 class OperationsForm(StyledFormMixin, forms.ModelForm):

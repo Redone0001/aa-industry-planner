@@ -20,6 +20,7 @@
 
 <section class="aip-panel card" id="acquisitions" data-buy-list>
   <div class="aip-section-heading"><h3 class="h5">Materials to buy or move</h3>{% if multibuy %}<button type="button" class="btn btn-outline-primary btn-sm" data-copy-multibuy>Copy combined Multibuy</button>{% endif %}</div>
+  {% include 'aa_industry_planner/gas_multibuy.html' %}
   <p>Remaining requirements from the saved plans, after linked jobs and available stock. Deliver jobs and refresh inventory to update this list.</p>
   <p data-copy-status role="status" class="form-text"></p>
   {% if shortages %}<div class="table-responsive"><table class="table table-hover align-middle mb-0">

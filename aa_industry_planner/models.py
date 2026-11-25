@@ -337,6 +337,9 @@ class UserPreferences(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(720)],
         help_text="If set, use duration instead of run count for reaction batches.",
     )
+    gas_decompression_yield = models.PositiveSmallIntegerField(
+        default=90, validators=[MinValueValidator(90), MaxValueValidator(95)]
+    )
     manufacturing_time_multiplier = multiplier()
     reaction_time_multiplier = multiplier()
     alpha_clone_tax = rate()

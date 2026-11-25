@@ -109,15 +109,15 @@
     const textarea = section.querySelector('[data-multibuy-text]');
     const status = section.querySelector('[data-copy-status]');
     const filter = button.dataset.copyMultibuy;
-    const lines = [...section.querySelectorAll('[data-buy-line]')].filter(row => {
+    const text = button.dataset.copyText ?? [...section.querySelectorAll('[data-buy-line]')].filter(row => {
       if (filter === "unchecked") return !row.classList.contains("is-reviewed");
       return !filter || row.dataset.buyCategory === filter;
-    }).map(row => row.dataset.buyLine);
-    const text = lines.join("\n");
+    }).map(row => row.dataset.buyLine).join("\n");
     if (!text) { status.textContent = "No items to copy."; return; }
     try {
       await navigator.clipboard.writeText(text);
-      status.textContent = `Copied ${lines.length} item${lines.length === 1 ? "" : "s"}. Paste into EVE Multibuy.`;
+      const count = text.split("\n").length;
+      status.textContent = `Copied ${count} item${count === 1 ? "" : "s"}. Paste into EVE Multibuy.`;
     } catch (_) {
       textarea.value = text;
       textarea.closest('details').open = true;

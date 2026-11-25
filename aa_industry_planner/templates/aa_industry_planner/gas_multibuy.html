@@ -1,0 +1,8 @@
+{% if gas_multibuy.raw or gas_multibuy.compressed %}
+<div class="aip-actions mt-2">
+  <button class="btn btn-outline-secondary btn-sm" type="button" data-copy-multibuy="gas" data-copy-text="{{ gas_multibuy.raw }}" {% if not gas_multibuy.raw %}disabled{% endif %}>Copy Gas</button>
+  <button class="btn btn-outline-secondary btn-sm" type="button" data-copy-multibuy="compressed-gas" data-copy-text="{{ gas_multibuy.compressed }}" {% if not gas_multibuy.compressed %}disabled{% endif %}>Copy Compressed Gas</button>
+</div>
+{% if gas_multibuy.compressed %}<p class="form-text mb-1">{{ gas_multibuy.yield_percent }}% decompression yield · <a href="{% url 'aa_industry_planner:configuration' %}#id_gas_decompression_yield">Change yield</a></p>{% endif %}
+{% if gas_multibuy.unavailable %}<p class="form-text">Buy {{ gas_multibuy.unavailable|join:', ' }} as raw gas.</p>{% endif %}
+{% endif %}

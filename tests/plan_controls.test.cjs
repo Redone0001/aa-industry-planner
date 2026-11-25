@@ -21,6 +21,10 @@ function browser({failSave=false, failCopy=false}={}) {
   textarea.value=rows.map(row=>row.dataset.buyLine).join('\n');
   const section={querySelector:selector=>selector==='[data-multibuy-text]'?textarea:status,querySelectorAll:()=>rows};
   const buttons=['','unchecked','minerals','pi','moon-goo'].map(value=>({dataset:{copyMultibuy:value},closest:()=>section,addEventListener(_,fn){this.click=fn;}}));
+  for (const [mode, copyText] of [
+    ['gas', 'Amber Mykoserocin 50\nFullerite-C50 100'],
+    ['compressed-gas', 'Compressed Amber Mykoserocin 53\nCompressed Fullerite-C50 106'],
+  ]) buttons.push({dataset:{copyMultibuy:mode,copyText},closest:()=>section,addEventListener(_,fn){this.click=fn;}});
   runInNewContext(source,{
     document:{querySelector:()=>null,addEventListener:(event,fn)=>{events[event]=fn;},querySelectorAll:selector=>{
       if(selector==='[data-checklist-save]')return[save];
@@ -69,14 +73,24 @@ test('copy all includes reviewed items and unchecked copy omits them',async()=>{
 
 test('category copy includes only lines in the selected category',async()=>{
   const ui=browser();
-  for (const button of ui.buttons.slice(2)) await button.click();
+  for (const button of ui.buttons.slice(2,5)) await button.click();
   assert.deepEqual(ui.copied,['Isogen 1200000\nZydrine 2','Robotics 8','Cadmium 15']);
+});
+
+test('gas buttons copy the raw or converted gas list supplied by the server',async()=>{
+  const ui=browser();
+  for (const button of ui.buttons.slice(5)) await button.click();
+  assert.deepEqual(ui.copied,[
+    'Amber Mykoserocin 50\nFullerite-C50 100',
+    'Compressed Amber Mykoserocin 53\nCompressed Fullerite-C50 106',
+  ]);
+  assert.match(ui.status.textContent,/Copied 2 items/);
 });
 
 test('clipboard denial exposes exactly the requested text and preserves full-list copying',async()=>{
   const ui=browser({failCopy:true});
-  await ui.buttons[4].click();
-  assert.equal(ui.textarea.value,'Cadmium 15');
+  await ui.buttons[6].click();
+  assert.equal(ui.textarea.value,'Compressed Amber Mykoserocin 53\nCompressed Fullerite-C50 106');
   assert.equal(ui.details.open,true);
   assert.equal(ui.textarea.selected,true);
   await ui.buttons[0].click();

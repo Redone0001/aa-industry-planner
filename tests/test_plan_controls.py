@@ -10,16 +10,19 @@ from django.urls import reverse
 from eve_sde.models import ItemCategory, ItemGroup, ItemType
 
 from aa_industry_planner.engine import PlanningError
-from aa_industry_planner.forms import AssignmentForm, PolicyForm, blueprint_rows
+from aa_industry_planner.forms import AssignmentForm, PolicyForm, PreferencesForm, blueprint_rows
 from aa_industry_planner.industry import BONUS_SCOPE_OFFSET
 from aa_industry_planner.models import (
     Facility,
     FacilityAssignment,
     FacilityService,
     IndustryJob,
+    InventorySource,
     ItemPolicy,
+    ManualStock,
     PlanBlueprintOverride,
     ProductionPlan,
+    UserPreferences,
 )
 from aa_industry_planner.services.jobs import allocate_job
 from aa_industry_planner.services.planning import calculate, create_plan, refresh_plan
@@ -147,6 +150,69 @@ def test_buy_list_classifies_inputs_using_sde_groups(user, client, types):
     }
     assert all(available for _, _, available in response.context["copy_categories"])
     assert b'data-buy-line="Cadmium 5"' in response.content
+
+
+def test_gas_copies_use_net_shortages_and_the_users_saved_yield(
+    user, client, types, assigned_facility
+):
+    material = ItemCategory.objects.create(id=4, name="Material")
+    raw = ItemGroup.objects.create(id=711, name="Harvestable Cloud", category=material)
+    compressed = ItemGroup.objects.create(id=4168, name="Compressed Gas", category=material)
+    for tid, name, group in [
+        (30370, "Fullerite-C50", raw),
+        (62399, "Compressed Fullerite-C50", compressed),
+        (28694, "Amber Mykoserocin", raw),
+        (62377, "Compressed Amber Mykoserocin", compressed),
+        (49787, "Hiemal Tricarboxyl Vapor", raw),
+    ]:
+        types[tid] = ItemType.objects.create(id=tid, name=name, group=group, published=True)
+    add_recipe(types, 1, {30370: 120, 62399: 7, 28694: 50, 49787: 3, 5: 2})
+    source = InventorySource.objects.create(user=user, kind="manual", name="Local stock")
+    ManualStock.objects.create(
+        source=source, item_type=types[30370], facility=assigned_facility, quantity=20
+    )
+    production = create_plan(user, 1, 1, default_me=0)
+    client.force_login(user)
+    url = reverse("aa_industry_planner:plan", args=[production.pk])
+    response = client.get(url)
+    gas = response.context["gas_multibuy"]
+    assert gas["raw"] == "Amber Mykoserocin 50\nFullerite-C50 100\nHiemal Tricarboxyl Vapor 3"
+    assert gas["compressed"] == "Compressed Amber Mykoserocin 56\nCompressed Fullerite-C50 119"
+    assert gas["unavailable"] == ["Hiemal Tricarboxyl Vapor"]
+    assert b"Copy Gas" in response.content and b"Copy Compressed Gas" in response.content
+    assert b"Buy Hiemal Tricarboxyl Vapor as raw gas" in response.content
+
+    preferences = UserPreferences.objects.get(user=user)
+    payload = {
+        "form": "preferences",
+        "reaction_runs": 1,
+        "manufacturing_time_multiplier": "1",
+        "reaction_time_multiplier": "1",
+        "alpha_clone_tax": "0",
+    }
+    for value in [89, 96]:
+        form = PreferencesForm(dict(payload, gas_decompression_yield=value), instance=preferences)
+        assert not form.is_valid()
+        assert "gas_decompression_yield" in form.errors
+    assert (
+        client.post(
+            reverse("aa_industry_planner:configuration"), dict(payload, gas_decompression_yield=95)
+        ).status_code
+        == 302
+    )
+    updated = client.get(url)
+    assert b"95% decompression yield" in updated.content
+    assert updated.context["gas_multibuy"]["compressed"] == (
+        "Compressed Amber Mykoserocin 53\nCompressed Fullerite-C50 113"
+    )
+    assert updated.context["multibuy"] == response.context["multibuy"]
+
+    create_plan(user, 1, 1, default_me=0)
+    queue = client.get(reverse("aa_industry_planner:production_queue"))
+    assert queue.context["gas_multibuy"]["compressed"] == (
+        "Compressed Amber Mykoserocin 106\nCompressed Fullerite-C50 246"
+    )
+    assert b"Copy Compressed Gas" in queue.content
 
 
 def test_blueprints_default_to_me10_te20_without_affecting_reactions(user, recipes):

@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.3.0 adds plans with multiple outputs and a production queue showing ready batches, deliveries, and materials to buy or move across active plans. Version 0.2.3 counts empty slots and jobs awaiting delivery in the Alliance Auth sidebar badge. Version 0.2.2 added the badge preference and marked Discord-delivered notifications as read. Version 0.2.1 introduced delivery reminders for jobs that still show Active after their scheduled finish. Version 0.2.0 introduced batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
+Version 0.3.1 adds raw and compressed gas Multibuy exports with a per-user decompression yield. Version 0.3.0 introduced plans with multiple outputs and a production queue showing ready batches, deliveries, and materials to buy or move across active plans. Version 0.2.3 added delivery actions to the Alliance Auth sidebar badge. Version 0.2.2 added the badge preference and marked Discord-delivered notifications as read. Version 0.2.1 introduced delivery reminders for jobs that still show Active after their scheduled finish. Version 0.2.0 introduced batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
 
 ## Features
 
@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.0" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.3.1" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -189,6 +189,8 @@ Hover or focus the installation estimate to see its saved calculation: EIV per r
 **Reviewed** checkboxes are private, persistent reminders for every item, available in the tree, graph inspector, production steps and buy list. Matching entries stay synchronized. Checks survive plan refreshes, visually cross out the item name and do not change stock, quantities, readiness or job completion. Archived plans display the saved reminders without editing them.
 
 **Buy / import list → Copy buy all** copies each net shortage as `Item name quantity`, one line per item with ungrouped integer quantities, for EVE Multibuy. **Copy unchecked** excludes reviewed items. **Copy Minerals**, **Copy PI**, and **Copy Moon goo** copy the matching SDE groups. Moon goo covers raw moon materials. The expandable text area provides a manual-copy fallback. Refresh the plan to recalculate shortages after stock changes.
+
+**Copy Gas** exports raw gas shortages. **Copy Compressed Gas** converts those shortages to their compressed counterparts and includes any compressed gas already required by the plan. Set **Gas decompression yield (%)** under **Configuration → Batch & character defaults** from 90% to 95%. The default is 90%. The compressed quantity rounds up, so 100 units of raw gas need 112 compressed units at 90% or 106 at 95%. The list identifies gases without a compressed option. Both buttons also work on the combined **Production queue**. [CCP gas decompression notes](https://www.eveonline.com/news/view/patch-notes-version-20-03)
 
 Expand a production step and select **I will buy this** to add its shortage to the buy list. The plan recalculates production runs and drops the inputs used by that purchase. The tree and graph show the quantity covered on each branch, and the production sequence keeps the runs shared with other branches. To reverse a choice, select **Make instead** under **Planned purchases**.
 

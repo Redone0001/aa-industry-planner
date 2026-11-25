@@ -54,6 +54,7 @@ from .models import (
     UserPreferences,
 )
 from .services.capacity import capacity_status
+from .services.gas import gas_multibuy
 from .services.inventory import (
     authorized_sources,
     inventory_by_location,
@@ -177,12 +178,14 @@ def production_queue(request):
     steps = PlanStep.objects.select_related("item_type").prefetch_related("allocations__job")
     plans = list(plans.prefetch_related(Prefetch("steps", queryset=steps)))
     queue = build_production_queue(request.user, plans)
+    preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
     return page(
         request,
         "production_queue",
         plans=plans,
-        capacity=capacity_status(request.user),
+        capacity=capacity_status(request.user, preferences),
         multibuy=multibuy_text(queue["shortages"]),
+        gas_multibuy=gas_multibuy(queue["shortages"], preferences.gas_decompression_yield),
         **queue,
     )
 
@@ -307,6 +310,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         and "inventory_locations" not in snapshot,
         inputs=inputs,
         multibuy=multibuy_text(inputs),
+        gas_multibuy=gas_multibuy(inputs, preferences.gas_decompression_yield),
         copy_categories=[
             (key, label, key in available_categories) for key, label in copy_categories
         ],
