@@ -42,14 +42,10 @@ def authorized_sources(user):
     return InventorySource.objects.filter(pk__in=allowed)
 
 
-def inventory_by_location(user, locations=None, *, include_elsewhere=False):
-    from .locations import InventoryLocations
-
-    locations = locations or InventoryLocations(user)
-    known_locations = locations.transfer_names if include_elsewhere else locations.names
+def assets_at_locations(sources, known_locations):
+    """Resolve imported items through their containers and corporation offices."""
     if not known_locations:
-        return {}
-    sources = authorized_sources(user).filter(include_in_planning=True)
+        return
     rows = list(
         Asset.objects.filter(source__in=sources).values(
             "source_id",
@@ -93,17 +89,21 @@ def inventory_by_location(user, locations=None, *, include_elsewhere=False):
             roots[key] = current
         return current
 
-    totals = defaultdict(lambda: defaultdict(int))
     for row in rows:
         if (row["source_id"], row["item_id"]) in safety:
             continue
         location = root(row["source_id"], row["location_id"])
         # OfficeFolder entries locate corp hangars; they are not consumable items.
-        if (
-            location is not None
-            and not row["is_blueprint_copy"]
-            and row["location_flag"] != "OfficeFolder"
-        ):
+        if location is not None and row["location_flag"] != "OfficeFolder":
+            yield row, location
+
+
+def stock_at_locations(sources, known_locations, assets):
+    if not known_locations:
+        return {}
+    totals = defaultdict(lambda: defaultdict(int))
+    for row, location in assets:
+        if location in known_locations and not row["is_blueprint_copy"]:
             totals[row["type_id"]][location] += row["quantity"]
     manual = ManualStock.objects.filter(
         source__in=sources, facility__structure_id__in=known_locations
@@ -111,6 +111,17 @@ def inventory_by_location(user, locations=None, *, include_elsewhere=False):
     for row in manual.values("item_type_id", "facility__structure_id", "quantity"):
         totals[row["item_type_id"]][row["facility__structure_id"]] += row["quantity"]
     return {tid: dict(amounts) for tid, amounts in totals.items()}
+
+
+def inventory_by_location(user, locations=None, *, include_elsewhere=False):
+    from .locations import InventoryLocations
+
+    locations = locations or InventoryLocations(user)
+    known_locations = locations.transfer_names if include_elsewhere else locations.names
+    sources = authorized_sources(user).filter(include_in_planning=True)
+    return stock_at_locations(
+        sources, known_locations, assets_at_locations(sources, known_locations)
+    )
 
 
 def inventory_totals(user, locations=None):

@@ -3,6 +3,7 @@ from types import SimpleNamespace as Obj
 
 from django.utils import timezone
 
+from aa_industry_planner.services.blueprints import FormulaSupply
 from aa_industry_planner.services.scheduling import estimate_schedule
 
 
@@ -58,6 +59,26 @@ def test_batches_use_parallel_slots_and_keep_the_smaller_final_job():
     assert rows[0].timing["remaining_jobs"] == 3
     serial = estimate_schedule(rows, prefs(reaction=1))
     assert serial["duration"] == 50
+
+
+def test_formula_pools_are_shared_at_one_structure_and_release_independently():
+    now = timezone.now()
+    rows = [step(1, runs=2, batches=[1, 1]), step(2), step(3), step(4)]
+    for row, location in zip(rows, [1001, 1001, 1002, 1003], strict=True):
+        row.blueprint_type_id = 501
+        row.details["context"]["structure_id"] = location
+    formulas = {
+        (501, 1001): FormulaSupply(available=1),
+        (501, 1002): FormulaSupply(reserved=[job(now, 30, status="paused")]),
+        (501, 1003): FormulaSupply(reserved=[job(now, 30, status="ready")]),
+    }
+    result = estimate_schedule(rows, prefs(reaction=20), now=now, reaction_formulas=formulas)
+    assert result["duration"] is None
+    assert rows[0].timing["finish_seconds"] == 20
+    assert rows[1].timing["start_at"] == now + timedelta(seconds=20)
+    assert rows[1].timing["finish_seconds"] == 30
+    assert "without a known release time" in rows[2].timing["reason"]
+    assert rows[3].timing["finish_seconds"] == 10
 
 
 def test_independent_work_fills_slots_before_future_dependencies_are_ready():

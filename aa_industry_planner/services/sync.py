@@ -98,6 +98,7 @@ def sync_source(source, api=None):
                 ]
             }
             fields.update(
+                blueprint_item_id=data.get("blueprint_id"),
                 start_date=parse_datetime(data["start_date"]),
                 end_date=parse_datetime(data["end_date"]),
             )

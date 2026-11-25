@@ -4,7 +4,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
-from heapq import heapify, heappop, heappush
+from heapq import heapify, heappop, heappush, heapreplace
 from math import ceil, inf, isfinite
 
 from django.utils import timezone
@@ -12,6 +12,7 @@ from django.utils import timezone
 from aa_industry_planner.engine import material_quantity
 from aa_industry_planner.models import JOB_ACTIVITIES, PlanStep
 
+from .blueprints import reaction_formula_key
 from .capacity import ACTIVITIES
 
 
@@ -194,19 +195,27 @@ def remaining_work(steps, root_id=None, *, target_demand=None, include_external=
     return work, consumers
 
 
-def schedule_batches(work, consumers, free_slots, available, arrivals):
+def schedule_batches(work, consumers, free_slots, available, arrivals, formula_pools):
     ready = {activity: [] for activity in ACTIVITIES}
+    waiting_for_formula = []
     queued = set()
+    elapsed = 0
 
     def enqueue(tid):
         row = work[tid]
-        if tid not in queued and row.seconds_per_run > 0 and row.next_batch(available):
+        if tid in queued or row.seconds_per_run <= 0 or not row.next_batch(available):
+            return
+        pool = formula_pools.get(tid)
+        if pool is None or (pool and pool[0] <= elapsed):
             heappush(ready[row.step.activity], (row.step.position, tid))
-            queued.add(tid)
+        elif pool and isfinite(pool[0]):
+            heappush(waiting_for_formula, (pool[0], tid))
+        else:
+            return
+        queued.add(tid)
 
     for tid in work:
         enqueue(tid)
-    elapsed = 0
     while True:
         updated = set()
         while arrivals and arrivals[0][0] <= elapsed:
@@ -214,6 +223,10 @@ def schedule_batches(work, consumers, free_slots, available, arrivals):
             available[tid] += quantity
             updated.update(consumers[tid])
         for tid in updated:
+            enqueue(tid)
+        while waiting_for_formula and waiting_for_formula[0][0] <= elapsed:
+            _, tid = heappop(waiting_for_formula)
+            queued.remove(tid)
             enqueue(tid)
 
         # Both activity pools can start jobs at the same timestamp. Within that
@@ -225,7 +238,11 @@ def schedule_batches(work, consumers, free_slots, available, arrivals):
         ]
         if not active:
             next_slot = min((free_slots[a][0] for a in ACTIVITIES if ready[a]), default=inf)
-            elapsed = min(next_slot, arrivals[0][0] if arrivals else inf)
+            elapsed = min(
+                next_slot,
+                arrivals[0][0] if arrivals else inf,
+                waiting_for_formula[0][0] if waiting_for_formula else inf,
+            )
             if not isfinite(elapsed):
                 break
             continue
@@ -233,6 +250,11 @@ def schedule_batches(work, consumers, free_slots, available, arrivals):
         _, tid = heappop(ready[activity])
         queued.remove(tid)
         row = work[tid]
+        pool = formula_pools.get(tid)
+        if pool and pool[0] > elapsed:
+            # A different step sharing this formula pool started first.
+            enqueue(tid)
+            continue
         batch = row.next_batch(available)
         if batch is None:
             # Another job starting at this time used the shared inputs first.
@@ -250,8 +272,9 @@ def schedule_batches(work, consumers, free_slots, available, arrivals):
             1, int((row.seconds_per_run * size).to_integral_value(rounding=ROUND_CEILING))
         )
         end = elapsed + seconds
-        heappop(free_slots[activity])
-        heappush(free_slots[activity], end)
+        heapreplace(free_slots[activity], end)
+        if pool:
+            heapreplace(pool, end)
         if consumers[tid]:
             heappush(arrivals, (end, tid, size * row.output_per_run))
         if row.start is None:
@@ -261,7 +284,14 @@ def schedule_batches(work, consumers, free_slots, available, arrivals):
 
 
 def estimate_schedule(
-    steps, preferences, running_jobs=(), now=None, root_id=None, *, target_demand=None
+    steps,
+    preferences,
+    running_jobs=(),
+    now=None,
+    root_id=None,
+    *,
+    target_demand=None,
+    reaction_formulas=None,
 ):
     now = now or timezone.now()
     slots = {activity: getattr(preferences, f"{activity}_slots") for activity in ACTIVITIES}
@@ -281,6 +311,13 @@ def estimate_schedule(
         heapify(free_slots[activity])
 
     work, consumers = remaining_work(steps, root_id, target_demand=target_demand)
+    pools_by_key = {}
+    for key, supply in (reaction_formulas or {}).items():
+        pool = [0] * min(slots["reaction"], supply.available)
+        pool.extend(release_after(job, now) for job in supply.reserved)
+        heapify(pool)
+        pools_by_key[key] = pool
+    formula_pools = {}
     available = defaultdict(int)
     arrivals = []
     remaining_jobs = 0
@@ -312,6 +349,16 @@ def estimate_schedule(
             reason = f"Configure {step.get_activity_display().lower()} slots."
         if row.batches and row.seconds_per_run <= 0:
             reason = "Saved job duration is unavailable. Refresh this plan."
+        if row.batches and step.activity == "reaction" and reaction_formulas is not None:
+            key = reaction_formula_key(step)
+            pool = formula_pools[tid] = pools_by_key.get(key, [])
+            if not reason:
+                if key[1] is None:
+                    reason = "Assign a structure for this reaction."
+                elif not pool:
+                    reason = "No reaction formula found at the assigned structure."
+                elif not isfinite(pool[0]):
+                    reason = "All reaction formulas are in jobs without a known release time."
         jobs = sum(row.batches.values())
         remaining_jobs += jobs
         step.timing = dict(
@@ -330,7 +377,7 @@ def estimate_schedule(
             )
         return dict(duration=None, finish_at=None, slots=slots, too_large=True)
 
-    schedule_batches(work, consumers, free_slots, available, arrivals)
+    schedule_batches(work, consumers, free_slots, available, arrivals, formula_pools)
     for row in work.values():
         timing = row.step.timing
         if row.start is not None:

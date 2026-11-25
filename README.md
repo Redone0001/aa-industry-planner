@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.4.0 adds personal storage locations by EVE ID, limits wrong-location stock to configured industry and storage locations, and fixes the MySQL collation error in job reminders. Version 0.3.1 introduced gas Multibuy exports with a per-user decompression yield. Version 0.3.0 introduced plans with multiple outputs and a production queue showing ready batches, deliveries, and materials to buy or move across active plans. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
+Version 0.5.0 checks for manufacturing blueprints at each job structure and limits parallel reaction estimates to the formulas available there. Version 0.4.0 introduced personal storage locations by EVE ID and fixed the MySQL collation error in job reminders. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
 
 ## Features
 
@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.4.0" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -268,7 +268,9 @@ Under **Production slots, warnings & sync**, enter total **manufacturing** and *
 
 Use **Sidebar badge** in the same section to show empty slots and jobs awaiting delivery next to **Industry Planner**. Choose both activities, manufacturing only, reactions only, or off. A job counts as one delivery action when ESI reports it ready or it still reports Active past the scheduled finish. Each delivery counts once, even when the remaining jobs already fill your slot budget. For example, set the badge to reactions only and configure 20 reaction slots. With 20 or more jobs still running and none to deliver, the badge is hidden. When five finish, it shows **5**. With 15 jobs still running, delivering the five changes those five delivery actions into five empty slots to fill.
 
-Manufacturing and reaction jobs each share their own slot pool across all branches. Each saved batch starts when a slot is free and its full input quantities are available. Finished upstream batches release their output for downstream jobs while later upstream batches continue. Shared output is consumed once across branches. Imported active/paused jobs installed by your owned characters reserve capacity, including jobs outside the plan. A paused job or an active job past its reported end needs an ESI status update to forecast its slot release. Already installed jobs count toward remaining demand, including inputs they consumed when they started. The forecast uses saved stock allocations and assumes buy/import inputs and blueprints are available now and that delivery and hauling are immediate. Forecasts over 50,000 remaining jobs require larger batches.
+Manufacturing and reaction jobs each share their own slot pool across all branches. Each saved batch starts when a slot is free and its full input quantities are available. Finished upstream batches release their output for downstream jobs while later upstream batches continue. Shared output is consumed once across branches. Imported active/paused jobs installed by your owned characters reserve capacity, including jobs outside the plan. A paused job or an active job past its reported end needs an ESI status update to forecast its slot release. Already installed jobs count toward remaining demand, including inputs they consumed when they started. The forecast uses saved stock allocations and assumes buy/import inputs and manufacturing blueprints are available now and that delivery and hauling are immediate. Forecasts over 50,000 remaining jobs require larger batches.
+
+**Blueprint settings** checks for the exact BPO or BPC type at the saved manufacturing structure using included ESI assets. **Reaction formulas** shows local counts, including formulas held by imported active, paused and ready-to-deliver jobs. The planner matches installed formula item IDs to assets to avoid double-counting. A reaction batch needs a free slot and its own formula. The estimate reuses a formula after the previous batch is delivered. Refresh your existing ESI sources after upgrade to fill in the item IDs for jobs already imported.
 
 For each activity, optionally set **active jobs below a minimum**, **idle slots above a maximum**, or both. Blank disables that condition; idle limit `0` warns when any slot is idle. Idle means not producing and includes ready-to-deliver jobs, which are shown separately so you can deliver them before reusing those slots. Paused jobs occupy slots but do not count as active or idle. Counts use ESI-reported status. Alerts fire once per warning episode and rearm after recovery or a change to that activity's thresholds/slots. Notifications can disable this event or send it through existing opt-in Discord DMs. Alerts wait for error-free imports no older than 30 minutes from every configured ESI source; missing/revoked sources must be reconnected or removed. The existing `evaluate_all_watches` Beat task now checks slot warnings too, so no additional schedule is required. Successful imports also evaluate them.
 
@@ -309,7 +311,7 @@ The seed script prints the local demo credentials and uses synthetic recipes lab
 
 ## Scope and acceptance checks
 
-Planning currently covers deterministic **manufacturing and reactions** from SDE blueprints. Other ESI job activities appear in the jobs list, but invention probability, copying, blueprint ownership/BPC inventory, PI extraction/processing, refining, skills import, market buy-order costing, automatic logistics and EVE job submission are outside this version. Blueprint access and appropriate character skills are assumed. Blueprint ME/TE default to 10/20 for manufacturing and can be overridden within each plan; effective character time bonuses are user declarations. Material requirements and costs are estimates for review in EVE before installation.
+Planning currently covers deterministic **manufacturing and reactions** from SDE blueprints. Other ESI job activities appear in the jobs list. Copying, remaining BPC runs, invention probability, PI extraction/processing, refining, skills import, market buy-order costing, automatic logistics and EVE job submission are outside this version. Blueprint ME/TE default to 10/20 for manufacturing and can be overridden within each plan. Effective character time bonuses are user declarations. Verify blueprint access, character skills, materials and costs in EVE before installation.
 
 Before deploying to a live community, verify the SSO round trip with multiple owned characters; personal and Director corporation imports; all-page import with a large hangar; a real running → ready → delivered job; source revocation; a watch dropping and recovering; 90-day cleanup; configured structure/rig comparisons against EVE; and one opt-in Discord DM. MariaDB and live worker acceptance tests have not been run in this workspace.
 

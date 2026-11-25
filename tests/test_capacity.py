@@ -8,6 +8,10 @@ from django.utils import timezone
 
 from aa_industry_planner.forms import OperationsForm
 from aa_industry_planner.models import (
+    Asset,
+    Facility,
+    FacilityAssignment,
+    FacilityService,
     IndustryJob,
     InventorySource,
     Notification,
@@ -21,7 +25,10 @@ from aa_industry_planner.services.capacity import (
     sidebar_slot_count,
 )
 from aa_industry_planner.services.notifications import remind_overdue_jobs
+from aa_industry_planner.services.planning import create_plan
 from aa_industry_planner.tasks import evaluate_all_watches
+
+from .test_services import make_job
 
 pytestmark = pytest.mark.django_db
 
@@ -31,6 +38,19 @@ def fresh(source):
     source.last_jobs_sync = timezone.now()
     source.save()
     return source
+
+
+@pytest.fixture
+def reaction_asset(user, assigned_facility, source):
+    reactor = FacilityService.objects.create(facility=assigned_facility, activity="reaction")
+    FacilityAssignment.objects.create(user=user, activity="reaction", service=reactor)
+    return Asset.objects.create(
+        source=source,
+        type_id=104,
+        item_id=1001,
+        quantity=1,
+        location_id=assigned_facility.structure_id,
+    )
 
 
 def add_job(user, source, activity=1, status="active", installer=None):
@@ -294,10 +314,10 @@ def test_character_management_lives_in_configuration_and_inventory_keeps_counts(
 
 
 def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_materials(
-    user, client, recipes
+    user, client, recipes, reaction_asset
 ):
-    from aa_industry_planner.services.planning import create_plan
-
+    reaction_asset.quantity = 2
+    reaction_asset.save(update_fields=["quantity"])
     preferences = UserPreferences.objects.create(user=user, manufacturing_slots=1, reaction_slots=2)
     plan = create_plan(user, 1, 1, use_inventory=False)
     snapshot = plan.snapshot.copy()
@@ -306,7 +326,7 @@ def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_ma
     first = client.get(url)
     assert first.status_code == 200
     assert b"Production timing" in first.content and b"Estimated step finish" in first.content
-    assert b"Each batch can start when a slot is free and its inputs are available" in first.content
+    assert b"Reaction batches also need a free formula at their structure" in first.content
     first_duration = first.context["timing"]["duration"]
     preferences.manufacturing_slots = 2
     preferences.save()
@@ -317,10 +337,8 @@ def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_ma
 
 
 def test_saved_plan_forecast_starts_a_branch_before_the_shared_reaction_step_finishes(
-    user, client, recipes
+    user, client, recipes, reaction_asset
 ):
-    from aa_industry_planner.services.planning import create_plan
-
     UserPreferences.objects.create(user=user, manufacturing_slots=20, reaction_slots=1)
     plan = create_plan(user, 1, 1, use_inventory=False)
     client.force_login(user)
@@ -330,3 +348,75 @@ def test_saved_plan_forecast_starts_a_branch_before_the_shared_reaction_step_fin
     first, second = sorted(timings[tid]["start_at"] for tid in [2, 3])
     assert first < timings[4]["finish_at"] == second
     assert response.context["timing"]["slots"] == {"manufacturing": 20, "reaction": 1}
+
+
+def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
+    user, client, recipes, reaction_asset
+):
+    source, location = reaction_asset.source, reaction_asset.location_id
+    Asset.objects.create(source=source, type_id=100, item_id=2001, quantity=1, location_id=location)
+    Asset.objects.create(
+        source=source,
+        type_id=101,
+        item_id=2002,
+        quantity=1,
+        location_id=2001,
+        is_blueprint_copy=True,
+    )
+    elsewhere = Facility.objects.create(
+        name="Other structure",
+        structure_id=location + 1,
+        solar_system=Facility.objects.get(structure_id=location).solar_system,
+    )
+    Asset.objects.create(
+        source=source,
+        type_id=102,
+        item_id=2003,
+        quantity=1,
+        location_id=elsewhere.structure_id,
+    )
+    Asset.objects.create(
+        source=source,
+        type_id=103,
+        item_id=2004,
+        quantity=1,
+        location_id=location,
+        location_flag="AssetSafety",
+    )
+    UserPreferences.objects.create(user=user, manufacturing_slots=2, reaction_slots=20)
+    plan = create_plan(user, 1, 1, use_inventory=False)
+    client.force_login(user)
+    url = reverse("aa_industry_planner:plan", args=[plan.pk])
+    now = timezone.now()
+    for job_id, formula in [(201, reaction_asset.item_id), (202, 1002)]:
+        make_job(
+            user,
+            source,
+            job_id=job_id,
+            installer_id=99999999,
+            activity_id=11,
+            blueprint_type_id=104,
+            blueprint_item_id=formula,
+            product_type_id=4,
+            facility_id=location,
+            end_date=now + timedelta(seconds=1800),
+        )
+    with patch("aa_industry_planner.services.scheduling.timezone.now", return_value=now):
+        response = client.get(url)
+        assert b"Reaction formulas" in response.content
+        assert "✓".encode() in response.content and "✕".encode() in response.content
+        assert {
+            row.initial["item_type_id"]: row.found for row in response.context["blueprints_formset"]
+        } == {1: True, 2: False, 3: False}
+        supply = response.context["reaction_rows"][0]["supply"]
+        assert (supply.total, supply.available, len(supply.reserved)) == (2, 0, 2)
+        reaction = next(step for step in response.context["steps"] if step.activity == "reaction")
+        assert reaction.timing["start_at"] == now + timedelta(seconds=1800)
+        assert reaction.timing["finish_seconds"] == 5400
+
+        reaction_asset.delete()
+        IndustryJob.objects.filter(job_id__in=[201, 202]).update(status="delivered")
+        response = client.get(url)
+        assert response.context["timing"]["duration"] is None
+        assert response.context["reaction_rows"][0]["supply"].total == 0
+        assert b"No reaction formula found at the assigned structure" in response.content

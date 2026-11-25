@@ -57,12 +57,15 @@ from .models import (
     SystemCostIndex,
     UserPreferences,
 )
+from .services.blueprints import FormulaSupply, reaction_formula_inventory, reaction_formula_key
 from .services.capacity import capacity_status
 from .services.gas import gas_multibuy
 from .services.inventory import (
+    assets_at_locations,
     authorized_sources,
     inventory_by_location,
     source_overview,
+    stock_at_locations,
 )
 from .services.job_assignments import annotate_assignments
 from .services.jobs import allocate_job, job_outputs, reconcile_jobs, unallocate_job
@@ -231,8 +234,63 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
             online=True, facility__in=Facility.visible_to(request.user)
         ).values_list("pk", flat=True)
     )
+    if blueprints_formset is None:
+        blueprints_formset = BlueprintFormSet(
+            initial=blueprint_rows(production), prefix="blueprints"
+        )
+    blueprint_locations = set()
+    for row in blueprints_formset:
+        tid = row.initial.get("item_type_id")
+        step = step_map.get(tid)
+        service = step.service if step else None
+        if step is None and tid:
+            service = locations.service_for(tid, "manufacturing")
+        if service and service.pk in services:
+            row.facility = service.facility
+            blueprint_locations.add(row.facility.structure_id)
+        for name, label in [("material_efficiency", "ME"), ("time_efficiency", "TE")]:
+            row.fields[name].widget.attrs.update(
+                placeholder="Plan default",
+                style="max-width: 8rem",
+                **{"aria-label": f"{row.initial.get('name', 'Blueprint')} {label} override (%)"},
+            )
+
+    reaction_sites = {}
+    for step in steps:
+        if step.activity == "reaction":
+            key = reaction_formula_key(step)
+            facility = step.service.facility if step.service_id in services else None
+            reaction_sites[key] = facility if facility and facility.structure_id == key[1] else None
+    formula_keys = {key for key, facility in reaction_sites.items() if facility}
+    asset_locations = set(locations.names) | blueprint_locations | {loc for _, loc in formula_keys}
+    sources = authorized_sources(request.user).filter(include_in_planning=True)
+    assets = list(assets_at_locations(sources, asset_locations))
+    blueprint_types = {row.initial.get("blueprint_type_id") for row in blueprints_formset}
+    found = {
+        (asset["type_id"], location)
+        for asset, location in assets
+        if asset["quantity"] and asset["type_id"] in blueprint_types
+    }
+    for row in blueprints_formset:
+        row.found = bool(
+            getattr(row, "facility", None)
+            and (row.initial.get("blueprint_type_id"), row.facility.structure_id) in found
+        )
+    reaction_formulas = reaction_formula_inventory(request.user, sources, formula_keys, assets)
+    formula_types = ItemType.objects.in_bulk({tid for tid, _ in reaction_sites})
+    reaction_rows = [
+        dict(
+            name=formula_types[tid].name if tid in formula_types else f"Formula #{tid}",
+            facility=facility,
+            supply=reaction_formulas.get((tid, location), FormulaSupply()),
+        )
+        for (tid, location), facility in reaction_sites.items()
+    ]
     annotate_steps(
-        steps, inventory_by_location(request.user, locations), checked, available_services=services
+        steps,
+        stock_at_locations(sources, locations.names, assets),
+        checked,
+        available_services=services,
     )
     allocations = [a for s in steps for a in s.allocations.all()]
     outputs = job_outputs([a.job for a in allocations])
@@ -241,7 +299,11 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
     capacity = capacity_status(request.user, preferences)
     timing = estimate_schedule(
-        steps, preferences, capacity["jobs"], target_demand=target_production(snapshot)
+        steps,
+        preferences,
+        capacity["jobs"],
+        target_demand=target_production(snapshot),
+        reaction_formulas=reaction_formulas,
     )
 
     tree, dependency_graph = plan_views(
@@ -306,18 +368,6 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     ).exclude(status__in=["cancelled", "reverted"])
     if settings_form is None:
         settings_form = PlanSettingsForm(instance=production, prefix="settings")
-    if blueprints_formset is None:
-        blueprints_formset = BlueprintFormSet(
-            initial=blueprint_rows(production), prefix="blueprints"
-        )
-    for row in blueprints_formset:
-        row.fields["material_efficiency"].widget.attrs["placeholder"] = "Plan default"
-        row.fields["time_efficiency"].widget.attrs["placeholder"] = "Plan default"
-        for name, label in [("material_efficiency", "ME"), ("time_efficiency", "TE")]:
-            row.fields[name].widget.attrs["aria-label"] = (
-                f"{row.initial.get('name', 'Blueprint')} {label} override (%)"
-            )
-            row.fields[name].widget.attrs["style"] = "max-width: 8rem"
     return page(
         request,
         "plan",
@@ -348,6 +398,8 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         candidate_jobs=visible_jobs[:300],
         settings_form=settings_form,
         blueprints_formset=blueprints_formset,
+        reaction_rows=reaction_rows,
+        legacy_formula_jobs=any(supply.unidentified for supply in reaction_formulas.values()),
     )
 
 

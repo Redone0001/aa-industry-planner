@@ -16,7 +16,7 @@
 {% include 'aa_industry_planner/plan_overview.html' %}
 <section class="aip-panel card">
   <h2 class="h5">Blueprint settings</h2>
-  <p>Defaults apply to manufacturing blueprints. Leave an individual override blank to use the plan default. Reactions do not use blueprint ME or TE.</p>
+  <p>Defaults apply to manufacturing blueprints. Leave an override blank to use the plan default.</p>
   {% if plan.archived %}<p class="text-body-secondary">Restore this plan to edit its blueprint settings or refresh its calculation.</p>{% endif %}
   <form method="post" action="{% url 'aa_industry_planner:refresh_plan' plan.pk %}">
     {% csrf_token %}<input type="hidden" name="form" value="blueprints">
@@ -24,17 +24,33 @@
       <div class="row g-3 align-items-center">{% include 'aa_industry_planner/form_fields.html' with form=settings_form field_class='col-sm-4' %}</div>
       {{ blueprints_formset.management_form }}{{ blueprints_formset.non_form_errors }}
       <div class="table-responsive"><table class="table table-sm align-middle">
-        <thead><tr><th>Manufacturing blueprint</th><th>ME override (%)</th><th>TE override (%)</th></tr></thead>
+        <thead><tr><th>Manufacturing blueprint</th><th>ME override (%)</th><th>TE override (%)</th><th>BPO/BPC at structure</th></tr></thead>
         <tbody>{% for row in blueprints_formset %}<tr>
           <td>{{ row.item_type_id }}{{ row.initial.name }}<small>Current ME {{ row.initial.effective_me }} / TE {{ row.initial.effective_te }}</small>{{ row.item_type_id.errors }}{{ row.non_field_errors }}</td>
           <td>{{ row.material_efficiency }}{{ row.material_efficiency.errors }}</td><td>{{ row.time_efficiency }}{{ row.time_efficiency.errors }}</td>
-        </tr>{% empty %}<tr><td colspan="3">No manufacturing blueprints currently needed.</td></tr>{% endfor %}</tbody>
+          <td>{% if row.facility %}{% if row.found %}<span class="text-success"><span aria-hidden="true">✓</span> Found</span>{% else %}<span class="text-danger"><span aria-hidden="true">✕</span> Missing</span>{% endif %}<small>{{ row.facility.name }}</small>{% else %}<span class="text-body-secondary">No structure</span>{% endif %}</td>
+        </tr>{% empty %}<tr><td colspan="4">No manufacturing blueprints currently needed.</td></tr>{% endfor %}</tbody>
       </table></div>
       {% if not plan.archived %}<button class="btn btn-primary">Apply blueprint settings & refresh</button>{% endif %}
     </fieldset>
   </form>
+  <p class="form-text">Blueprint presence uses the latest imported assets. Check a copy’s remaining runs in EVE.</p>
   <p class="form-text">Refresh uses current structures, location assignments, item policies, character settings, prices and system indices. If inventory is enabled, it also uses current stock. Compatible job links are kept; links that no longer match are reported.</p>
 </section>
+{% if reaction_rows %}
+<section class="aip-panel card">
+  <h2 class="h5">Reaction formulas</h2>
+  <p>Each parallel reaction job needs its own formula at the assigned structure. Formulas in jobs become available again after delivery.</p>
+  {% if legacy_formula_jobs %}<p class="text-warning">Some imported jobs predate formula tracking. Refresh sources to confirm the formula counts.</p>{% endif %}
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Formula</th><th>Structure</th><th class="number">Total</th><th class="number">In jobs</th><th class="number">Available</th></tr></thead>
+    <tbody>{% for row in reaction_rows %}<tr>
+      <td>{{ row.name }}</td><td>{{ row.facility.name|default:"No structure" }}</td>
+      <td class="number">{{ row.supply.total|quantity }}</td><td class="number">{{ row.supply.reserved|length|quantity }}</td><td class="number">{{ row.supply.available|quantity }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
 
 <section class="aip-panel card" id="production-sequence" data-step-sequence><div class="aip-section-heading"><h2 class="h5">Production sequence</h2><span class="text-body-secondary" data-step-filter-count role="status">{{ steps|length }} steps · inputs first</span></div>
 <div class="aip-actions mb-3" data-step-filter-controls hidden><label class="form-label" for="step-filter">Show steps</label><select class="form-select" id="step-filter" data-step-filter><option value="all">All steps</option><option value="remaining">To complete</option><option value="ready">Inputs ready</option><option value="checked">Checked reminders</option></select><small class="text-body-secondary">To complete includes ongoing jobs until their output is completed. Checkmarks are separate reminders.</small></div>

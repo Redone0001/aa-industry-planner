@@ -600,6 +600,7 @@ class IndustryJob(models.Model):
     installer_id = models.PositiveBigIntegerField()
     activity_id = models.PositiveSmallIntegerField()
     blueprint_type_id = models.PositiveBigIntegerField()
+    blueprint_item_id = models.PositiveBigIntegerField(null=True)
     product_type_id = models.PositiveBigIntegerField(null=True)
     facility_id = models.PositiveBigIntegerField()
     runs = models.PositiveIntegerField()

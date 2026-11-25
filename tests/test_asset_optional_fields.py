@@ -50,6 +50,7 @@ def test_sdk_optional_asset_values_are_saved_without_nulls(
             "job_id": 54321,
             "installer_id": source.token.character_id,
             "activity_id": 5,
+            "blueprint_id": 98765,
             "blueprint_type_id": 101,
             "product_type_id": None,
             "facility_id": 1000000000001,
@@ -69,7 +70,9 @@ def test_sdk_optional_asset_values_are_saved_without_nulls(
     assert asset.is_blueprint_copy is (copy is True)
     assert asset.location_flag == (flag or "")
     assert inventory_totals(user) == ({} if copy else {34: 5})
-    assert IndustryJob.objects.get(source=source, job_id=54321).product_type_id is None
+    job = IndustryJob.objects.get(source=source, job_id=54321)
+    assert job.product_type_id is None
+    assert job.blueprint_item_id == 98765
     source.refresh_from_db()
     assert source.last_error == ""
     assert source.last_assets_sync and source.last_jobs_sync

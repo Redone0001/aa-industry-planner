@@ -154,6 +154,7 @@ def blueprint_rows(production):
         rows.append(
             {
                 "item_type_id": int(tid),
+                "blueprint_type_id": recipe.get("blueprint_id"),
                 "name": node.get("name", str(tid)),
                 "material_efficiency": override.material_efficiency if override else None,
                 "time_efficiency": override.time_efficiency if override else None,
