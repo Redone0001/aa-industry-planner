@@ -1,5 +1,15 @@
 {% extends 'aa_industry_planner/base.html' %}
 {% block industry_content %}
+{% include 'aa_industry_planner/source_summary.html' with source_management=True %}
+{% include 'aa_industry_planner/source_connections.html' %}
+<section class="aip-panel card" id="production-slots">
+  <h2 class="h5">Production slots, warnings & sync</h2>
+  <p>Set your total slots across the characters you plan to use. Both warning conditions are optional and can be enabled together for each activity. Warnings appear in Notifications and use your existing Discord DM preference.</p>
+  <div class="aip-service-grid mb-3">{% for row in capacity.rows %}<div><h3 class="h6">{{ row.label }}</h3><p>{{ row.active }} active · {{ row.paused }} paused · {{ row.idle }} idle / {{ row.slots }} configured slots</p>{% if row.ready %}<small>{{ row.ready }} ready to deliver (included in idle)</small>{% endif %}</div>{% endfor %}</div>
+  {% if not capacity.fresh %}<p class="text-warning">Job imports are missing, have errors, or are over 30 minutes old. Slot warnings wait for fresh imports from all connected sources.</p>{% endif %}
+  <form method="post">{% csrf_token %}<input type="hidden" name="form" value="operations"><div class="row">{% include 'aa_industry_planner/form_fields.html' with form=operations_form field_class='col-md-6' %}</div><button class="btn btn-primary">Save slots & monitoring</button></form>
+  <p class="form-text mt-3 mb-0">Counts include manufacturing and reaction jobs installed by your owned characters, including corporation jobs and jobs outside this plan. Idle means not producing and includes jobs ready for delivery. Paused jobs occupy a slot and are counted separately. Alerts fire once per low-usage episode and rearm after recovery. Your existing inventory-target evaluation task checks thresholds every 10 minutes; successful imports also check them.</p>
+</section>
 <div class="aip-two-col">
   <section class="aip-panel card">
     <h2 class="h5">Assign industry locations</h2>

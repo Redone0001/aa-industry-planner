@@ -25,9 +25,12 @@ def discord_embed(notification):
     embed = {
         "title": notification.title[:256],
         "description": notification.message[:4096],
-        "color": {"job_finished": 0x32D6A0, "inventory_low": 0xF4BC61, "sync_failed": 0xED6D72}.get(
-            notification.kind, 0x63A8FF
-        ),
+        "color": {
+            "job_finished": 0x32D6A0,
+            "inventory_low": 0xF4BC61,
+            "capacity_low": 0xF4BC61,
+            "sync_failed": 0xED6D72,
+        }.get(notification.kind, 0x63A8FF),
         "timestamp": notification.created_at.isoformat(),
         "author": {"name": "Industry Planner"},
         "footer": {"text": "Alliance Auth • Industrial operations"},

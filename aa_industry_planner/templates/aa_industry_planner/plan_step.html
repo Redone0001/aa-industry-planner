@@ -2,13 +2,14 @@
 <details class="aip-step {% if step.checked %}is-reviewed{% endif %}" data-step-collapse data-progress="{{ step.progress }}" data-state="{{ step.state }}" data-shared="{{ step.shared|yesno:'true,false' }}" data-review-item="{{ step.item_type_id }}" id="step-{{ step.position }}">
   <summary class="aip-step-summary">
     <span class="aip-step-number badge text-bg-secondary rounded-circle">{{ step.position }}</span>
-    <span class="aip-step-title"><strong class="aip-step-name">{{ step.item_type.name }}</strong> <span>× {{ step.output_quantity|quantity }} · {{ step.runs|quantity }} run{{ step.runs|pluralize }}</span></span>
+    <span class="aip-step-title"><strong class="aip-step-name">{{ step.item_type.name }}</strong> <span>× {{ step.output_quantity|quantity }} · {{ step.runs|quantity }} run{{ step.runs|pluralize }}</span><small>{% if step.timing.not_needed %}No additional production needed for remaining final output{% elif step.timing.finish_seconds != None %}Estimated finish in {{ step.timing.finish_seconds|duration }}{% else %}Timing: {{ step.timing.reason }}{% endif %}</small></span>
     <span class="aip-state-badge" data-state="{{ step.state }}">{{ step.state_label }}{% if step.needs_haul %} · haul inputs{% endif %}</span>
     {% include 'aa_industry_planner/installation_fee.html' %}
     <span class="aip-step-caret" aria-hidden="true">▸</span>
   </summary>
   <div class="aip-step-body">
     <p>{{ step.get_activity_display }} · {{ step.details.batches|length }} planned job{{ step.details.batches|length|pluralize }} · {{ step.allocations.all|length }} linked job{{ step.allocations.all|length|pluralize }} · {{ step.details.estimated_seconds|duration }} total job time</p>
+    <p class="aip-step-schedule">{% if step.timing.running %}Linked job already running. {% endif %}{% if step.timing.start_at %}Next batch starts: {{ step.timing.start_at|date:'d M H:i T' }}. {% endif %}{% if step.timing.finish_at %}Estimated step finish: <strong>{{ step.timing.finish_at|date:'d M H:i T' }}</strong>. {% endif %}{{ step.timing.remaining_jobs }} remaining unstarted job{{ step.timing.remaining_jobs|pluralize }}.{% if step.timing.reason %} <span class="text-warning">{{ step.timing.reason }}</span>{% endif %}</p>
     <p class="aip-coverage"><strong>{{ step.progress }}% completed</strong> · <strong>{{ step.ongoing_progress }}% ongoing</strong> · {{ step.completed_quantity|quantity }} completed + {{ step.ongoing_quantity|quantity }} ongoing / {{ step.output_quantity|quantity }} planned units</p>
     {% include 'aa_industry_planner/checklist.html' with item_id=step.item_type_id item_name=step.item_type.name checked=step.checked %}
     {% if step.dependency_positions %}<div class="aip-dependencies">Uses outputs from {% for p in step.dependency_positions %}<a href="#step-{{ p }}">Step {{ p }}</a> {% endfor %}</div>{% endif %}

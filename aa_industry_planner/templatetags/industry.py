@@ -73,6 +73,8 @@ def exact_percentage(value):
 @register.filter
 def duration(value):
     seconds = int(value or 0)
+    if seconds < 60:
+        return f"{seconds}s"
     days, seconds = divmod(seconds, 86400)
     hours, seconds = divmod(seconds, 3600)
     minutes = seconds // 60

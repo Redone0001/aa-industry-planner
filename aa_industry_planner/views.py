@@ -20,6 +20,7 @@ from .forms import (
     BlueprintFormSet,
     ManualStockForm,
     NotificationPreferencesForm,
+    OperationsForm,
     PlanForm,
     PlanSettingsForm,
     PolicyForm,
@@ -46,9 +47,11 @@ from .models import (
     PlanStep,
     ProductionPlan,
     ReplenishmentTask,
+    SlotMonitorState,
     SystemCostIndex,
     UserPreferences,
 )
+from .services.capacity import capacity_status
 from .services.inventory import (
     authorized_sources,
     inventory_by_location,
@@ -61,6 +64,7 @@ from .services.planning import create_plan
 from .services.planning import refresh_plan as refresh_production_plan
 from .services.presentation import fee_presentation, plan_views
 from .services.readiness import annotate_steps, multibuy_text
+from .services.scheduling import estimate_schedule
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
 
@@ -165,6 +169,11 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     outputs = job_outputs([a.job for a in allocations])
     for allocation in allocations:
         allocation.actual_output = outputs[allocation.job_id]
+    preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
+    capacity = capacity_status(request.user, preferences)
+    timing = estimate_schedule(
+        steps, preferences, capacity["jobs"], root_id=production.item_type_id
+    )
 
     tree, dependency_graph = plan_views(
         snapshot,
@@ -218,6 +227,8 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         "plan",
         plan=production,
         steps=steps,
+        timing=timing,
+        capacity=capacity,
         tree=tree,
         dependency_graph=dependency_graph,
         legacy_inventory_scope=snapshot.get("inventory_used", True)
@@ -405,10 +416,9 @@ def source_action(request, pk):
     elif action == "disconnect":
         source.delete()
         evaluate_watches(request.user)
+    destination = request.POST.get("return_to", "configuration")
     return redirect(
-        "aa_industry_planner:jobs"
-        if request.POST.get("return_to") == "jobs"
-        else "aa_industry_planner:inventory"
+        f"aa_industry_planner:{destination if destination in {'jobs', 'configuration', 'inventory'} else 'configuration'}"
     )
 
 
@@ -485,12 +495,19 @@ def connect(kind):
                 user=request.user,
                 kind=kind,
                 owner_id=owner_id,
-                defaults={"name": name, "token": token, "enabled": True, "last_error": ""},
+                defaults={
+                    "name": name,
+                    "token": token,
+                    "enabled": True,
+                    "last_error": "",
+                    "sync_error_since": None,
+                    "sync_failed_at": None,
+                },
             )
             from .tasks import refresh_source
 
             refresh_source.delay(source.pk)
-            return redirect("aa_industry_planner:inventory")
+            return redirect("aa_industry_planner:configuration")
 
         if kind == "corporation":
             return login_required(
@@ -665,6 +682,9 @@ def configuration(request):
     prefs_form = PreferencesForm(
         request.POST if request.POST.get("form") == "preferences" else None, instance=preferences
     )
+    operations_form = OperationsForm(
+        request.POST if request.POST.get("form") == "operations" else None, instance=preferences
+    )
     policy_form = PolicyForm(request.POST if request.POST.get("form") == "policy" else None)
     assignment_form = AssignmentForm(
         request.POST if request.POST.get("form") == "assignment" else None, user=request.user
@@ -676,6 +696,15 @@ def configuration(request):
     )
     if request.method == "POST":
         action = request.POST.get("form")
+        if action == "operations" and operations_form.is_valid():
+            operations_form.save()
+            for activity in ["manufacturing", "reaction"]:
+                if any(field.startswith(f"{activity}_") for field in operations_form.changed_data):
+                    SlotMonitorState.objects.filter(user=request.user, activity=activity).update(
+                        warning_active=False
+                    )
+            messages.success(request, "Slots, warning thresholds and ESI error grace period saved.")
+            return redirect(reverse("aa_industry_planner:configuration") + "#production-slots")
         if action == "storage" and storage_form.is_valid():
             ActivityStorageLocation.objects.get_or_create(
                 user=request.user,
@@ -713,6 +742,8 @@ def configuration(request):
         request,
         "configuration",
         prefs_form=prefs_form,
+        operations_form=operations_form,
+        capacity=capacity_status(request.user, preferences),
         policy_form=policy_form,
         assignment_form=assignment_form,
         storage_form=storage_form,
@@ -725,6 +756,7 @@ def configuration(request):
         assignments=FacilityAssignment.objects.filter(user=request.user).select_related(
             "service__facility", "item_group"
         ),
+        **source_overview(request.user),
     )
 
 

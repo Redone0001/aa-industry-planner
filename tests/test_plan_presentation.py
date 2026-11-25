@@ -92,8 +92,8 @@ def test_inventory_and_jobs_report_zero_connected_characters_even_with_aa_owners
     for name in ["inventory", "jobs"]:
         content = client.get(reverse(f"aa_industry_planner:{name}")).content
         assert b"0 characters connected" in content
-        assert b"AA characters are not connected to this planner automatically" in content
-        assert b"Connect character" in content
+        assert b"AA characters are not connected automatically" in content
+        assert b"Manage characters &amp; sources" in content
     assert source_overview(user)["connected_characters"] == 0
 
 

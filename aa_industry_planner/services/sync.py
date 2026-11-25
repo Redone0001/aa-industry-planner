@@ -128,7 +128,11 @@ def sync_source(source, api=None):
                     f"Job #{job.job_id} has finished ({job.runs:,} runs). Status: {job.status}. Ready jobs must still be delivered in EVE.",
                 )
         InventorySource.objects.filter(pk=source.pk).update(
-            last_assets_sync=timestamp, last_jobs_sync=timestamp, last_error=""
+            last_assets_sync=timestamp,
+            last_jobs_sync=timestamp,
+            last_error="",
+            sync_error_since=None,
+            sync_failed_at=None,
         )
     source._sync_stage = "updating plan progress"
     reconcile_jobs(source.user)
@@ -136,6 +140,10 @@ def sync_source(source, api=None):
 
     source._sync_stage = "evaluating inventory targets"
     evaluate_watches(source.user)
+    from .capacity import evaluate_slot_warnings
+
+    source._sync_stage = "checking job slot warnings"
+    evaluate_slot_warnings(source.user)
     from aa_industry_planner.tasks import resolve_entity_names
 
     source._sync_stage = "queueing name lookup"

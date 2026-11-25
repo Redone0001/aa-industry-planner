@@ -1,4 +1,5 @@
 import logging
+from math import ceil
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
@@ -9,7 +10,7 @@ from django.utils import timezone
 from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 
 from . import __version__
-from .models import IndustryJob, InventorySource, Notification
+from .models import IndustryJob, InventorySource, Notification, UserPreferences
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +22,32 @@ def sync_failure_message(exc, stage):
     # Show only a fixed stage, exception class, HTTP status and worker version.
     status = getattr(exc, "status_code", None)
     http = f", HTTP {status}" if type(status) is int and 100 <= status <= 599 else ""
+    cause, seen = exc, set()
+    timeout = False
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        timeout |= type(cause).__name__ in {
+            "ReadTimeout",
+            "ConnectTimeout",
+            "WriteTimeout",
+            "PoolTimeout",
+            "TimeoutError",
+        }
+        cause = cause.__cause__ or cause.__context__
+    summary = "ESI network timeout" if timeout else "Import error"
     return (
-        f"Import failed during {stage} ({type(exc).__name__}{http}; worker {__version__}). "
+        f"{summary} during {stage} ({type(exc).__name__}{http}; worker {__version__}). "
         "Check the worker traceback for details."
     )
 
 
-@shared_task(bind=True, max_retries=4)
+@shared_task(bind=True, max_retries=None)
 def refresh_source(self, source_id):
     from .services.notifications import emit
     from .services.sync import sync_source
 
     key = f"aip:sync:{source_id}"
+    retry_key = f"aip:sync:retry-after:{source_id}"
     if not cache.add(key, True, timeout=1800):
         return
     source = None
@@ -42,7 +57,15 @@ def refresh_source(self, source_id):
         )
         if source.kind == "manual":
             return
+        retry_after = cache.get(retry_key)
+        if (
+            source.last_error
+            and isinstance(retry_after, (int, float))
+            and retry_after > timezone.now().timestamp()
+        ):
+            return
         sync_source(source)
+        cache.delete(retry_key)
     except InventorySource.DoesNotExist:
         return
     except (ESIBucketLimitException, ESIErrorLimitException) as exc:
@@ -51,26 +74,57 @@ def refresh_source(self, source_id):
         stage = getattr(source, "_sync_stage", "loading source")
         message = sync_failure_message(exc, stage)
         logger.warning(
-            "Industry source %s failed during %s (%s; worker %s)",
+            "Industry source %s import error during %s (%s; worker %s)",
             source_id,
             stage,
             type(exc).__name__,
             __version__,
         )
         if source is None:
-            raise self.retry(exc=exc, countdown=min(900, 60 * 2**self.request.retries)) from exc
-        InventorySource.objects.filter(pk=source_id).update(last_error=message[:250])
-        if isinstance(exc, PermissionDenied):
-            InventorySource.objects.filter(pk=source_id).update(enabled=False)
-        emit(
-            source.user,
-            "sync_failed",
-            f"sync:{source_id}:{timezone.now().date()}",
-            "Inventory sync needs attention",
-            f"{source.name}: {message}",
-        )
-        if not isinstance(exc, PermissionDenied):
-            raise self.retry(exc=exc, countdown=min(900, 60 * 2**self.request.retries)) from exc
+            raise self.retry(
+                exc=exc, countdown=min(900, 60 * 2 ** min(self.request.retries, 4)), max_retries=4
+            ) from exc
+        now = timezone.now()
+        preferences, _ = UserPreferences.objects.get_or_create(user=source.user)
+        permanent = isinstance(exc, PermissionDenied)
+        with transaction.atomic():
+            current = InventorySource.objects.select_for_update().filter(pk=source_id).first()
+            if current is None:
+                return
+            since = current.sync_error_since or now
+            grace = preferences.sync_error_grace_minutes * 60
+            remaining = grace - (now - since).total_seconds()
+            failed = permanent or remaining <= 0
+            current.last_error, current.sync_error_since = message[:250], since
+            if failed:
+                current.sync_failed_at = current.sync_failed_at or now
+            else:
+                current.sync_failed_at = None
+            if permanent:
+                current.enabled = False
+            current.save(
+                update_fields=["last_error", "sync_error_since", "sync_failed_at", "enabled"]
+            )
+            if failed:
+                emit(
+                    source.user,
+                    "sync_failed",
+                    f"sync:{source_id}:{since.isoformat()}",
+                    "ESI source needs attention",
+                    f"{source.name}: {message}",
+                )
+        if not permanent:
+            delay = (
+                min(900, 60 * 2 ** min(self.request.retries, 4), max(1, remaining))
+                if not failed
+                else 600
+            )
+            # Periodic/manual refreshes must share the same backoff, rather than
+            # starting another unlimited retry chain while this one is waiting.
+            cache.set(retry_key, now.timestamp() + delay, timeout=ceil(delay) + 60)
+            if not failed:
+                raise self.retry(exc=exc, countdown=delay) from exc
+            raise
     finally:
         cache.delete(key)
 
@@ -118,13 +172,24 @@ def refresh_public_data(self):
 
 @shared_task
 def evaluate_all_watches():
+    from django.db.models import Q
+
+    from .services.capacity import evaluate_slot_warnings
     from .services.watches import evaluate_watches
 
     for user in (
-        get_user_model().objects.filter(is_active=True, industry_watches__enabled=True).distinct()
+        get_user_model()
+        .objects.filter(
+            Q(industry_watches__enabled=True)
+            | Q(industry_preferences__manufacturing_slots__gt=0)
+            | Q(industry_preferences__reaction_slots__gt=0),
+            is_active=True,
+        )
+        .distinct()
     ):
         if user.has_perm("aa_industry_planner.access_planner"):
             evaluate_watches(user)
+            evaluate_slot_warnings(user)
 
 
 @shared_task(bind=True, max_retries=4)

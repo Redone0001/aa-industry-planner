@@ -334,6 +334,27 @@ class UserPreferences(models.Model):
     manufacturing_time_multiplier = multiplier()
     reaction_time_multiplier = multiplier()
     alpha_clone_tax = rate()
+    manufacturing_slots = models.PositiveSmallIntegerField(
+        default=0, validators=[MaxValueValidator(1000)]
+    )
+    reaction_slots = models.PositiveSmallIntegerField(
+        default=0, validators=[MaxValueValidator(1000)]
+    )
+    manufacturing_min_active = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MaxValueValidator(1000)]
+    )
+    reaction_min_active = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MaxValueValidator(1000)]
+    )
+    manufacturing_max_idle = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MaxValueValidator(1000)]
+    )
+    reaction_max_idle = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MaxValueValidator(1000)]
+    )
+    sync_error_grace_minutes = models.PositiveIntegerField(
+        default=30, validators=[MaxValueValidator(10080)]
+    )
 
 
 class ItemPolicy(models.Model):
@@ -373,6 +394,8 @@ class InventorySource(models.Model):
     last_assets_sync = models.DateTimeField(null=True, blank=True)
     last_jobs_sync = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=250, blank=True)
+    sync_error_since = models.DateTimeField(null=True, blank=True)
+    sync_failed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -593,7 +616,20 @@ class NotificationPreferences(models.Model):
     job_finished = models.BooleanField(default=True)
     inventory_low = models.BooleanField(default=True)
     sync_failed = models.BooleanField(default=True)
+    capacity_low = models.BooleanField(default=True)
     discord_dm = models.BooleanField(default=False)
+
+
+class SlotMonitorState(models.Model):
+    user = models.ForeignKey(USER, on_delete=models.CASCADE)
+    activity = models.CharField(max_length=20, choices=Activity.choices)
+    warning_active = models.BooleanField(default=False)
+    episode = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "activity"], name="aip_unique_slot_monitor")
+        ]
 
 
 class Notification(models.Model):

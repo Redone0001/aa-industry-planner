@@ -1,0 +1,3 @@
+{% if source.needs_reconnection %}<small class="text-warning">Reconnect this ESI source to restore access.</small>{% endif %}
+{% if source.missing_scopes %}<small class="text-warning">Missing ESI permissions: {{ source.missing_scopes|join:', ' }}.</small>{% endif %}
+{% if source.last_error %}<div class="alert {% if source.sync_failed_at %}alert-danger{% else %}alert-warning{% endif %} aip-sync-error" role="status"><strong>{% if source.sync_failed_at %}Sync failed{% else %}Retrying during the error grace period{% endif %}</strong>{% if source.sync_error_since %}<small>Errors since {{ source.sync_error_since|date:'d M H:i' }}. Previous imported data is retained.</small>{% endif %}<div>{{ source.last_error }}</div></div>{% endif %}

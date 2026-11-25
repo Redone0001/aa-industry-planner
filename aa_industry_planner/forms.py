@@ -266,7 +266,54 @@ class PreferencesForm(StyledFormMixin, forms.ModelForm):
         ]
 
 
+class OperationsForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = UserPreferences
+        fields = [
+            "manufacturing_slots",
+            "reaction_slots",
+            "manufacturing_min_active",
+            "reaction_min_active",
+            "manufacturing_max_idle",
+            "reaction_max_idle",
+            "sync_error_grace_minutes",
+        ]
+        labels = {
+            "manufacturing_slots": "Manufacturing slots (total)",
+            "reaction_slots": "Reaction slots (total)",
+            "manufacturing_min_active": "Warn below this many active manufacturing jobs",
+            "reaction_min_active": "Warn below this many active reaction jobs",
+            "manufacturing_max_idle": "Warn above this many idle manufacturing slots",
+            "reaction_max_idle": "Warn above this many idle reaction slots",
+            "sync_error_grace_minutes": "ESI error grace period (minutes)",
+        }
+        help_texts = {
+            "manufacturing_slots": "Total across your characters. 0 leaves new manufacturing work unscheduled.",
+            "reaction_slots": "Total across your characters. 0 leaves new reaction work unscheduled.",
+            "sync_error_grace_minutes": "Retry temporary import errors for this long before marking the source failed and notifying you. 0 reports immediately. Revoked access still requires immediate reconnection.",
+            **{
+                f"{activity}_{threshold}": "Leave blank to disable this warning. Paused jobs occupy slots but are not active."
+                for activity in ["manufacturing", "reaction"]
+                for threshold in ["min_active", "max_idle"]
+            },
+        }
+
+    def clean(self):
+        data = super().clean()
+        for activity in ["manufacturing", "reaction"]:
+            slots = data.get(f"{activity}_slots", 0)
+            for threshold in ["min_active", "max_idle"]:
+                field = f"{activity}_{threshold}"
+                value = data.get(field)
+                if value is not None and (not slots or value > slots):
+                    self.add_error(
+                        field, "Set a slot total and a threshold no larger than that total."
+                    )
+        return data
+
+
 class NotificationPreferencesForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = NotificationPreferences
-        fields = ["job_finished", "inventory_low", "sync_failed", "discord_dm"]
+        fields = ["job_finished", "inventory_low", "sync_failed", "capacity_low", "discord_dm"]
+        labels = {"capacity_low": "Low active jobs / idle slot warnings"}

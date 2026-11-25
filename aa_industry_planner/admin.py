@@ -245,7 +245,13 @@ class SourceAdmin(admin.ModelAdmin):
     list_display = ["name", "user", "kind", "enabled", "last_assets_sync", "last_jobs_sync"]
     list_filter = ["kind", "enabled"]
     exclude = ["token"]
-    readonly_fields = ["last_assets_sync", "last_jobs_sync", "last_error"]
+    readonly_fields = [
+        "last_assets_sync",
+        "last_jobs_sync",
+        "last_error",
+        "sync_error_since",
+        "sync_failed_at",
+    ]
     raw_id_fields = ["user"]
 
 

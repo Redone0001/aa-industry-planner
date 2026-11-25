@@ -139,4 +139,6 @@ def source_overview(user):
         "sources": sources,
         "connected_characters": sum(s.connected and s.kind == "character" for s in sources),
         "connected_corporations": sum(s.connected and s.kind == "corporation" for s in sources),
+        "pending_syncs": sum(bool(s.last_error) and not s.sync_failed_at for s in sources),
+        "failed_syncs": sum(bool(s.sync_failed_at) for s in sources),
     }

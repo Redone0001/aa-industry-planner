@@ -99,7 +99,7 @@ def test_missing_scope_is_not_counted_as_connected_and_is_reported(user, source,
     assert overview[f"connected_{'characters' if kind == 'character' else 'corporations'}"] == 0
     assert overview["sources"][0].missing_scopes == [missing]
     client.force_login(user)
-    for page in ["inventory", "jobs"]:
+    for page in ["configuration", "jobs"]:
         content = client.get(reverse(f"aa_industry_planner:{page}")).content
         assert b"Missing ESI permissions" in content
         assert missing.encode() in content
