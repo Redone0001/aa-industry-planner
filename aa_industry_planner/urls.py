@@ -14,6 +14,9 @@ urlpatterns = [
     path("plans/<int:pk>/archive/", views.archive_plan, name="archive_plan"),
     path("plans/<int:pk>/link/", views.link_job, name="link_job"),
     path("plans/<int:pk>/check/<int:item_id>/", views.check_plan_item, name="check_plan_item"),
+    path(
+        "plans/<int:pk>/purchase/<int:item_id>/", views.set_plan_purchase, name="set_plan_purchase"
+    ),
     path("allocations/<int:pk>/unlink/", views.unlink_job, name="unlink_job"),
     path("inventory/", views.inventory, name="inventory"),
     path("inventory/manual/<int:pk>/delete/", views.delete_manual, name="delete_manual"),

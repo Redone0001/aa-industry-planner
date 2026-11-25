@@ -6,7 +6,7 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -55,15 +55,16 @@ from .services.capacity import capacity_status
 from .services.inventory import (
     authorized_sources,
     inventory_by_location,
-    inventory_totals,
     source_overview,
+    stock_location_names,
 )
 from .services.job_assignments import annotate_assignments
 from .services.jobs import allocate_job, job_outputs, reconcile_jobs, unallocate_job
+from .services.locations import InventoryLocations
 from .services.planning import create_plan
 from .services.planning import refresh_plan as refresh_production_plan
 from .services.presentation import fee_presentation, plan_views
-from .services.readiness import annotate_steps, multibuy_text
+from .services.readiness import annotate_steps, multibuy_line, multibuy_text
 from .services.scheduling import estimate_schedule
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment
@@ -189,11 +190,36 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         },
         checked,
     )
-    inputs = [
-        dict(n, checked=int(tid) in checked)
-        for tid, n in nodes.items()
-        if n["missing"] and not n["runs"]
-    ]
+    purchase_choices = snapshot.get("purchase_choices", {})
+    inputs = sorted(
+        (
+            dict(n, checked=int(tid) in checked, planned_purchase=tid in purchase_choices)
+            for tid, n in nodes.items()
+            if n["missing"] and not n["runs"]
+        ),
+        key=lambda row: row["name"].casefold(),
+    )
+    classifications = {
+        tid: (group, category)
+        for tid, group, category in ItemType.objects.filter(
+            pk__in=[row["type_id"] for row in inputs]
+        ).values_list("pk", "group_id", "group__category_id")
+    }
+    for row in inputs:
+        group, category = classifications.get(row["type_id"], (None, None))
+        # CCP SDE groups Mineral (18), Moon Materials (427), and Planetary
+        # Resources (1031). Category 43 contains the four commodity tiers.
+        row["category"] = (
+            "pi"
+            if category == 43 or group == 1031
+            else {
+                18: "minerals",
+                427: "moon-goo",
+            }.get(group, "")
+        )
+        row["multibuy_line"] = multibuy_line(row)
+    copy_categories = [("minerals", "Minerals"), ("pi", "PI"), ("moon-goo", "Moon goo")]
+    available_categories = {row["category"] for row in inputs}
     graph_nodes = {n["id"]: n for n in dependency_graph["nodes"]}
     dependencies = {
         s.item_type_id: [
@@ -203,7 +229,9 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     }
     for step in steps:
         step.dependency_positions = dependencies[step.item_type_id]
-        step.shared = graph_nodes.get(step.item_type_id, {}).get("shared", False)
+        graph_node = graph_nodes.get(step.item_type_id, {})
+        step.shared = graph_node.get("shared", False)
+        step.removed_runs = graph_node.get("removed_runs", 0)
         step.fee = fee_presentation(step.details)
     visible_jobs = IndustryJob.objects.filter(
         user=request.user, source__in=authorized_sources(request.user), allocation__isnull=True
@@ -235,6 +263,18 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         and "inventory_locations" not in snapshot,
         inputs=inputs,
         multibuy=multibuy_text(inputs),
+        copy_categories=[
+            (key, label, key in available_categories) for key, label in copy_categories
+        ],
+        purchase_choices=sorted(purchase_choices.items(), key=lambda pair: pair[1].casefold()),
+        covered_steps=sorted(
+            (
+                n
+                for n in graph_nodes.values()
+                if n["covered_step"] and str(n["id"]) not in purchase_choices
+            ),
+            key=lambda n: n["name"].casefold(),
+        ),
         candidate_jobs=visible_jobs[:300],
         settings_form=settings_form,
         blueprints_formset=blueprints_formset,
@@ -286,6 +326,28 @@ def refresh_plan(request, pk):
             f"{detached} job link(s) no longer match this calculation and were released. The jobs remain in All jobs; no EVE jobs were cancelled.",
         )
     return redirect("aa_industry_planner:plan", pk=pk)
+
+
+@planner_access
+@require_POST
+def set_plan_purchase(request, pk, item_id):
+    action = request.POST.get("action")
+    if action not in {"buy", "make"}:
+        return HttpResponseBadRequest("Choose whether to buy or make the item.")
+    try:
+        _, detached = refresh_production_plan(
+            request.user, pk, purchase_change=(item_id, action == "buy")
+        )
+    except ProductionPlan.DoesNotExist as exc:
+        raise Http404 from exc
+    except PlanningError as exc:
+        messages.error(request, str(exc))
+    else:
+        if detached:
+            messages.warning(
+                request, f"{detached} job link(s) were released after recalculating the plan."
+            )
+    return redirect(reverse("aa_industry_planner:plan", args=[pk]) + "#buy-list")
 
 
 @planner_access
@@ -349,27 +411,42 @@ def inventory(request):
         evaluate_watches(request.user)
         messages.success(request, "Declared inventory updated.")
         return redirect("aa_industry_planner:inventory")
-    totals = inventory_totals(request.user)
+    locations = InventoryLocations(request.user)
+    stock = inventory_by_location(request.user, locations, include_elsewhere=True)
+    locations.prime_items(stock)
     watches = {
         w.item_type_id: w for w in InventoryWatch.objects.filter(user=request.user, enabled=True)
     }
-    names = {t.pk: str(t.name) for t in ItemType.objects.filter(pk__in=set(totals) | set(watches))}
-    policies = set(
-        ItemPolicy.objects.filter(user=request.user, buy=True).values_list(
-            "item_type_id", flat=True
+    item_ids = stock.keys() | watches.keys()
+    names = dict(ItemType.objects.filter(pk__in=item_ids).values_list("pk", "name"))
+    rows = []
+    outside_ids = set()
+    for tid in item_ids:
+        allowed = set(locations.item_scope(tid).location_ids) if tid in stock else set()
+        piles = stock.get(tid, {})
+        quantity = sum(piles.get(loc, 0) for loc in allowed)
+        elsewhere = {loc: amount for loc, amount in piles.items() if loc not in allowed and amount}
+        if not quantity and not elsewhere and tid not in watches:
+            continue
+        outside_ids.update(elsewhere)
+        minimum = watches[tid].minimum if tid in watches else None
+        policy = locations.policies.get(tid)
+        rows.append(
+            dict(
+                type_id=tid,
+                name=names.get(tid, str(tid)),
+                quantity=quantity,
+                minimum=minimum,
+                low=minimum is not None and quantity < minimum,
+                input=bool(policy and policy.buy),
+                elsewhere=elsewhere,
+            )
         )
-    )
-    rows = [
-        {
-            "type_id": t,
-            "name": names.get(t, str(t)),
-            "quantity": totals.get(t, 0),
-            "minimum": watches[t].minimum if t in watches else None,
-            "low": t in watches and totals.get(t, 0) < watches[t].minimum,
-            "input": t in policies,
-        }
-        for t in set(totals) | set(watches)
-    ]
+    location_names = stock_location_names(request.user, outside_ids) if outside_ids else {}
+    for row in rows:
+        row["elsewhere"] = [
+            (location_names[loc], amount) for loc, amount in sorted(row["elsewhere"].items())
+        ]
     rows.sort(key=lambda r: (not r["low"], r["name"]))
     return page(
         request,

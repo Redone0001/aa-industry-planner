@@ -205,6 +205,8 @@
 .aip [data-state="active"] { --aip-state: #9867d7; }
 .aip [data-state="buy"] { --aip-state: #d99a20; }
 .aip [data-state="blocked"] { --aip-state: #87939e; }
+.aip [data-state="elsewhere"] { --aip-state: #ffe000; }
+.aip [data-state="purchase"], .aip [data-state="covered"] { --aip-state: #21a5aa; }
 .aip .aip-graph-node, .aip .aip-tree-line, .aip .aip-step {
   border: 2px solid var(--aip-state, var(--bs-border-color));
   background: color-mix(in srgb, var(--aip-state) 12%, var(--bs-body-bg));
@@ -250,6 +252,9 @@
 .aip .aip-graph-edges path[data-state] { stroke: var(--aip-state); }
 .aip .aip-graph-edges path[data-shared="true"] { stroke-dasharray: 6 4; }
 .aip-state-badge { display: inline-block; border: 1px solid var(--aip-state); border-radius: 2rem; padding: .25rem .6rem; font-size: .8rem; font-weight: 600; background: color-mix(in srgb, var(--aip-state) 18%, var(--bs-body-bg)); }
+.aip .aip-state-badge[data-state="elsewhere"], .aip .aip-elsewhere-label,
+.aip [data-state="elsewhere"] .aip-graph-node-status { background: #ffe000; color: #221b00; }
+.aip .aip-elsewhere-label, .aip [data-state="elsewhere"] .aip-graph-node-status { display: inline-block; padding-inline: .25rem; border-radius: .2rem; }
 .aip-graph-node-status { display: block; font-size: 11px; font-weight: 650; line-height: 18px; margin-top: 3px; }
 .aip-ongoing-bar { background: #9867d7; }
 .aip-checklist { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-block: .4rem; font-size: .8rem; }

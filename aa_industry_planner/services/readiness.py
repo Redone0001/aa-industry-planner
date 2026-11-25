@@ -63,10 +63,15 @@ def annotate_steps(steps, stock, checked=(), available_services=None):
         step.checked = step.item_type_id in checked
 
 
+def multibuy_line(row):
+    name = str(row["name"]).replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    return f"{name} {int(row['missing'])}"
+
+
 def multibuy_text(inputs):
     """EVE Multibuy accepts an item name and an ungrouped integer per line."""
     return "\n".join(
-        f"{str(row['name']).replace(chr(10), ' ').replace(chr(13), ' ').replace(chr(9), ' ')} {int(row['missing'])}"
+        multibuy_line(row)
         for row in sorted(inputs, key=lambda r: r["name"].casefold())
         if row["missing"] > 0
     )

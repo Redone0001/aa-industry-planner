@@ -108,12 +108,11 @@
     const section = button.closest('[data-buy-list]');
     const textarea = section.querySelector('[data-multibuy-text]');
     const status = section.querySelector('[data-copy-status]');
-    textarea.dataset.fullText ??= textarea.value;
-    let lines = textarea.dataset.fullText.split("\n").filter(Boolean);
-    if (button.dataset.copyMultibuy === "unchecked") {
-      const excluded = new Set([...section.querySelectorAll('tr')].filter(row => row.querySelector('input[name="checked"]')?.checked).map(row => row.cells[0].textContent.trim()));
-      lines = lines.filter(line => !excluded.has(line.replace(/ \d+$/, "")));
-    }
+    const filter = button.dataset.copyMultibuy;
+    const lines = [...section.querySelectorAll('[data-buy-line]')].filter(row => {
+      if (filter === "unchecked") return !row.classList.contains("is-reviewed");
+      return !filter || row.dataset.buyCategory === filter;
+    }).map(row => row.dataset.buyLine);
     const text = lines.join("\n");
     if (!text) { status.textContent = "No items to copy."; return; }
     try {

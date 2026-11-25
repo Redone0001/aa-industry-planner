@@ -129,6 +129,22 @@ def allocate_location_stock(requirements, available):
     return sum(requirement["from_stock"] for requirement in requirements)
 
 
+def locate_stock_elsewhere(requirements, stock):
+    remaining = Counter(stock)
+    for requirement in requirements:
+        remaining.subtract(requirement["allocations"])
+    outside = [
+        stock_requirement(
+            row["quantity"] - row["from_stock"],
+            StockScope(tuple(remaining.keys() - set(row["location_ids"]))),
+        )
+        for row in requirements
+    ]
+    allocate_location_stock(outside, remaining)
+    for row, match in zip(requirements, outside, strict=True):
+        row["elsewhere"] = match["allocations"]
+
+
 @dataclass
 class Node:
     type_id: int
@@ -271,6 +287,8 @@ def plan(
             else min(required, max(0, stock.get(type_id, 0)))
         )
         node = Node(type_id, required, allocated, required - allocated, recipe=recipes[type_id])
+        if node.missing and stock_by_location and type_id in stock_by_location:
+            locate_stock_elsewhere(requirements[type_id], stock_by_location[type_id])
         node.inventory_requirements = requirements[type_id]
         nodes[type_id] = node
         if not node.missing or not node.recipe:

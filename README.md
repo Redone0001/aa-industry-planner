@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.1.18 adds slot-based remaining production forecasts, configurable low-usage warnings and an ESI failure grace period. Character and corporation connections are now managed in Configuration. Facilities remain grouped by solar system with a shared history chart and highlighted reactions. Structure, service and rig bonuses are calculated automatically from CCP's SDE. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles. A production AA installation and real ESI/Discord accounts are still needed for deployment acceptance testing.
+Version 0.2.0 adds batch-level production forecasts, yellow wrong-location stock indicators, category-specific Multibuy copying, and per-plan purchase choices that preserve shared production demand. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
 
 ## Features
 
@@ -26,13 +26,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.18"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.0"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.18"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.0"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -41,18 +41,18 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.18"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.0"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
 
-Restart AA's web and Celery worker processes afterwards. Version 0.1.18 requires migration `0009` for slot settings, warning state and sync error timestamps. Earlier unapplied migrations run in order too. It adds no dependencies; `--no-deps` preserves the installed SDE/ESI versions. Existing manual facilities remain unchanged until an administrator declares their hull and complete fit.
+Restart AA's web and Celery worker processes afterwards. Django applies any pending planner migrations through `0009`. The `--no-deps` option preserves the installed SDE and ESI versions.
 
 Existing apps may require SDE 0.2.x. The planner supports that version and does not require upgrading to SDE 2.x. To preserve the older stack, install with explicit constraints:
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.1.18" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.2.0" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -169,7 +169,7 @@ Corporation assets follow the same hierarchy: an item in a division (`CorpSAG1` 
 
 **Inventory → Declare inventory** now requires a structure and optionally a hangar/label. Quantities are absolute per item, structure and label. Migration `0006` preserves existing declarations and labels without guessing their physical location: records without a structure do not count until you use **Edit location / quantity** to assign one. The inventory overview shows configured stock; produced items use their own activity assignment, while raw inputs are shown across configured locations and checked per consuming job during planning.
 
-Plan material details show required units, stock allocated from allowed locations, remaining production/buying needs and the actual stock locations. Stock drawn from separate storage is marked for hauling. Planned outputs and storage supplies may still need transport between structures; no hauling happens automatically.
+Plan material details show required units, stock allocated from allowed locations, remaining production/buying needs and the actual stock locations. Stock drawn from separate storage is marked for hauling. **Wrong location** appears in yellow in Inventory and in saved plan material details. The plan shows how much of each shortage can be covered by moving stock, while shopping quantities reflect the stock already at allowed locations.
 
 Saved calculations retain their original snapshot. Old calculations that used pooled inventory show a notice; use **Refresh plan** to apply the location restrictions and current storage settings. Stock use is not a reservation across separate plans. If an activity has no assigned production structure, only storage explicitly configured for that activity can supply its jobs.
 
@@ -187,7 +187,9 @@ Hover or focus the installation estimate to see its saved calculation: EIV per r
 
 **Reviewed** checkboxes are private, persistent reminders for every item, available in the tree, graph inspector, production steps and buy list. Matching entries stay synchronized. Checks survive plan refreshes, visually cross out the item name and do not change stock, quantities, readiness or job completion. Archived plans display the saved reminders without editing them.
 
-**Buy / import list → Copy buy all** copies each net shortage as `Item name quantity`, one line per item with ungrouped integer quantities, for EVE Multibuy. **Copy unchecked** excludes reviewed buy items. The expandable text area provides a manual-copy fallback. These quantities come from the saved calculation; refresh the plan to recalculate shortages after stock changes.
+**Buy / import list → Copy buy all** copies each net shortage as `Item name quantity`, one line per item with ungrouped integer quantities, for EVE Multibuy. **Copy unchecked** excludes reviewed items. **Copy Minerals**, **Copy PI**, and **Copy Moon goo** copy the matching SDE groups. Moon goo covers raw moon materials. The expandable text area provides a manual-copy fallback. Refresh the plan to recalculate shortages after stock changes.
+
+Expand a production step and select **I will buy this** to add its shortage to the buy list. The plan recalculates production runs and drops the inputs used by that purchase. The tree and graph show the quantity covered on each branch, and the production sequence keeps the runs shared with other branches. To reverse a choice, select **Make instead** under **Planned purchases**.
 
 **Build overview** switches between **Graph** and **Tree**, using the same saved plan snapshot. The graph places the finished item on the left and inputs to the right, with each shared input shown once. Cards show plan-wide demand, stock and output or buying needs. Select an item to highlight its direct connections, inspect quantities for each input and consumer, or jump to its production step.
 
@@ -257,7 +259,7 @@ Manage character/corporation ESI connections in **Configuration → Characters &
 
 Under **Production slots, warnings & sync**, enter total **manufacturing** and **reaction** slots across your characters. These are separate activity budgets, as described in [CCP’s job type documentation](https://support.eveonline.com/hc/en-us/articles/203210272-Activities-and-Job-Types). Zero leaves new work in that activity unscheduled. Saved plan pages recalculate their timing forecast using current slot settings, saved job durations, completed/ongoing coverage and current imported jobs, without replacing their material/cost snapshots. Each step shows its estimated finish in the compact row and start/finish dates in its details. Refresh the plan calculation after changing batch limits, structures or skills.
 
-The forecast runs saved batches in parallel up to each activity's capacity and waits for prerequisite steps. Imported active/paused jobs installed by your owned characters reserve capacity, even outside this plan and even when their stock source is excluded. Other corporation members do not consume your configured slots. Two jobs of 50 can cover a 98-unit requirement without scheduling it again. A paused job or an active job past its reported end needs an ESI status update before its release can be predicted. Already finished output is not scheduled again. Inputs consumed by linked downstream jobs are removed from the remaining forecast; stock or completed upstream output already consumed there is not reused. The forecast does not change recorded completion percentages or the saved material snapshot. An estimate assumes buy/import inputs are available now, delivery/hauling is immediate, and unstarted jobs in other plans are excluded; shared storage, blueprint availability and manual installation delays can make actual completion later. Forecasts over 50,000 remaining jobs require larger batches.
+Manufacturing and reaction jobs each share their own slot pool across all branches. Each saved batch starts when a slot is free and its full input quantities are available. Finished upstream batches release their output for downstream jobs while later upstream batches continue. Shared output is consumed once across branches. Imported active/paused jobs installed by your owned characters reserve capacity, including jobs outside the plan. A paused job or an active job past its reported end needs an ESI status update to forecast its slot release. Already installed jobs count toward remaining demand, including inputs they consumed when they started. The forecast uses saved stock allocations and assumes buy/import inputs and blueprints are available now and that delivery and hauling are immediate. Forecasts over 50,000 remaining jobs require larger batches.
 
 For each activity, optionally set **active jobs below a minimum**, **idle slots above a maximum**, or both. Blank disables that condition; idle limit `0` warns when any slot is idle. Idle means not producing and includes ready-to-deliver jobs, which are shown separately so you can deliver them before reusing those slots. Paused jobs occupy slots but do not count as active or idle. Counts use ESI-reported status. Alerts fire once per warning episode and rearm after recovery or a change to that activity's thresholds/slots. Notifications can disable this event or send it through existing opt-in Discord DMs. Alerts wait for error-free imports no older than 30 minutes from every configured ESI source; missing/revoked sources must be reconnected or removed. The existing `evaluate_all_watches` Beat task now checks slot warnings too, so no additional schedule is required. Successful imports also evaluate them.
 

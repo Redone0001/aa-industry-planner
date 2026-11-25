@@ -1,8 +1,9 @@
 from collections import defaultdict
 
 from django.db.models import Count
+from eve_sde.models import NPCStation
 
-from aa_industry_planner.models import Asset, IndustryJob, InventorySource, ManualStock
+from aa_industry_planner.models import Asset, Facility, IndustryJob, InventorySource, ManualStock
 from aa_industry_planner.providers import missing_scopes
 
 
@@ -42,12 +43,12 @@ def authorized_sources(user):
     return InventorySource.objects.filter(pk__in=allowed)
 
 
-def inventory_by_location(user, locations=None):
+def inventory_by_location(user, locations=None, *, include_elsewhere=False):
     from .locations import InventoryLocations
 
     locations = locations or InventoryLocations(user)
     allowed = set(locations.all_ids)
-    if not allowed:
+    if not allowed and not include_elsewhere:
         return {}
     sources = authorized_sources(user).filter(include_in_planning=True)
     rows = list(
@@ -62,13 +63,28 @@ def inventory_by_location(user, locations=None):
         )
     )
     parents = {(r["source_id"], r["item_id"]): r["location_id"] for r in rows}
+    known_locations = allowed
+    hangar_roots = set()
+    if include_elsewhere:
+        known_locations = set(Facility.visible_to(user).values_list("structure_id", flat=True))
+        # A top-level hangar or corporation office can identify an unregistered
+        # Upwell structure. Other missing item parents are ambiguous.
+        hangar_roots = {
+            (row["source_id"], row["location_id"])
+            for row in rows
+            if row["location_id"] >= 10**12
+            and (row["source_id"], row["location_id"]) not in parents
+            and row["location_flag"] in {"Hangar", "OfficeFolder"}
+        }
     roots = {}
 
     def root(source_id, location_id):
         trail, seen = [], set()
         current = location_id
-        while current not in allowed:
+        while current not in known_locations:
             key = (source_id, current)
+            if include_elsewhere and (60_000_000 <= current < 64_000_000 or key in hangar_roots):
+                break
             if key in roots:
                 current = roots[key]
                 break
@@ -87,17 +103,27 @@ def inventory_by_location(user, locations=None):
         location = root(row["source_id"], row["location_id"])
         # OfficeFolder entries locate corp hangars; they are not consumable items.
         if (
-            location in allowed
+            location is not None
             and not row["is_blueprint_copy"]
             and row["location_flag"] != "OfficeFolder"
         ):
             totals[row["type_id"]][location] += row["quantity"]
-    for row in ManualStock.objects.filter(
-        source__in=sources,
-        facility__structure_id__in=allowed,
-    ).values("item_type_id", "facility__structure_id", "quantity"):
+    manual = ManualStock.objects.filter(
+        source__in=sources, facility__structure_id__in=known_locations
+    )
+    for row in manual.values("item_type_id", "facility__structure_id", "quantity"):
         totals[row["item_type_id"]][row["facility__structure_id"]] += row["quantity"]
     return {tid: dict(amounts) for tid, amounts in totals.items()}
+
+
+def stock_location_names(user, location_ids):
+    names = dict(NPCStation.objects.filter(pk__in=location_ids).values_list("pk", "name"))
+    names.update(
+        Facility.visible_to(user)
+        .filter(structure_id__in=location_ids)
+        .values_list("structure_id", "name")
+    )
+    return {loc: names.get(loc) or f"Location #{loc}" for loc in location_ids}
 
 
 def inventory_totals(user, locations=None):

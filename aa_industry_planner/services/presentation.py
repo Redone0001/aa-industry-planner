@@ -35,11 +35,17 @@ def fee_presentation(details):
 
 def plan_views(snapshot, steps, checked=()):
     raw = snapshot.get("nodes", {})
+    baseline = snapshot.get("before_purchases", {})
+    purchases = snapshot.get("purchase_choices", {})
     root_id = int(snapshot["product_id"])
     nodes = {}
-    for key, row in raw.items():
+    for key in raw | baseline:
         tid = int(key)
-        if tid != root_id and not row.get("required"):
+        row = raw.get(key, {})
+        original = baseline.get(key, {})
+        required = row.get("required", 0)
+        covered_quantity = max(0, original.get("required", 0) - required)
+        if tid != root_id and not (required or covered_quantity):
             continue
         context = row.get("context") or {}
         recipe = row.get("recipe") or {}
@@ -47,6 +53,7 @@ def plan_views(snapshot, steps, checked=()):
         kind = (
             recipe.get("activity") if row.get("runs") else "buy" if row.get("missing") else "stock"
         )
+        elsewhere = row.get("stock_elsewhere", [])
         state = step.get(
             "state",
             "stock"
@@ -57,12 +64,22 @@ def plan_views(snapshot, steps, checked=()):
             if step.get("progress") == 100
             else "blocked",
         )
+        if not required and covered_quantity:
+            kind = original.get("activity") or "buy"
+            state = "covered"
+        elif kind == "buy":
+            state = "purchase" if key in purchases else "elsewhere" if elsewhere else "buy"
         nodes[tid] = {
             "id": tid,
-            "name": row.get("name") or str(tid),
-            "required": row.get("required", 0),
+            "name": row.get("name") or original.get("name") or str(tid),
+            "required": required,
             "stock": row.get("from_stock", 0),
             "stock_locations": row.get("stock_locations", []),
+            "stock_elsewhere": elsewhere,
+            "elsewhere_quantity": sum(allocation["quantity"] for allocation in elsewhere),
+            "covered_quantity": covered_quantity,
+            "covered_step": bool(original.get("runs") and not row.get("runs") and covered_quantity),
+            "removed_runs": max(0, original.get("runs", 0) - row.get("runs", 0)),
             "missing": row.get("missing", 0),
             "output": row.get("output", 0),
             "kind": kind,
@@ -88,6 +105,9 @@ def plan_views(snapshot, steps, checked=()):
                 "active": "Job active",
                 "buy": "Buy / import",
                 "blocked": "Missing inputs",
+                "elsewhere": "Stock in wrong location",
+                "purchase": "Planned purchase",
+                "covered": "Covered by purchase",
             }[state],
             "checked": tid in checked,
             "me": context.get("me", 0),
@@ -96,13 +116,23 @@ def plan_views(snapshot, steps, checked=()):
             "height": NODE_HEIGHT,
         }
     edges, children, parents = [], defaultdict(list), defaultdict(list)
+    active_inputs = set()
     for tid in nodes:
-        for child, amount in raw.get(str(tid), {}).get("materials", {}).items():
+        materials = raw.get(str(tid), {}).get("materials", {})
+        original = baseline.get(str(tid), {}).get("materials", {})
+        for child, quantity in (original | materials).items():
+            amount = materials.get(child, 0)
+            covered = max(0, original.get(child, 0) - amount)
             child = int(child)
-            if child in nodes and amount:
-                edges.append({"source": tid, "target": child, "quantity": amount})
-                children[tid].append((child, amount))
+            if child in nodes and quantity:
+                edge = {"source": tid, "target": child, "quantity": amount}
+                if covered:
+                    edge["covered_quantity"] = covered
+                edges.append(edge)
+                children[tid].append((child, edge))
                 parents[child].append(tid)
+                if amount:
+                    active_inputs.add(child)
     indegree = {tid: len(parents[tid]) for tid in nodes}
     queue = deque(tid for tid in nodes if not indegree[tid])
     depth = dict.fromkeys(nodes, 0)
@@ -146,17 +176,26 @@ def plan_views(snapshot, steps, checked=()):
             )
     seen = set()
 
-    def branch(tid, edge_quantity=None, level=0):
-        reference = tid in seen
-        seen.add(tid)
+    def branch(tid, edge=None, level=0):
+        reference = tid in seen or (
+            edge is not None and not edge["quantity"] and tid in active_inputs
+        )
+        if not reference:
+            seen.add(tid)
         return {
             "item": nodes[tid],
             "reference": reference,
-            "edge_quantity": edge_quantity,
+            "edge_quantity": edge["quantity"] if edge else None,
+            "edge_covered": edge.get("covered_quantity", 0) if edge else 0,
             "depth": level,
             "children": []
             if reference
-            else [branch(child, amount, level + 1) for child, amount in children[tid]],
+            else [
+                branch(child, child_edge, level + 1)
+                for child, child_edge in sorted(
+                    children[tid], key=lambda pair: not pair[1]["quantity"]
+                )
+            ],
         }
 
     graph = {

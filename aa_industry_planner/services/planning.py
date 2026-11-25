@@ -21,7 +21,7 @@ from aa_industry_planner.models import (
     UserPreferences,
 )
 
-from .inventory import inventory_by_location
+from .inventory import inventory_by_location, stock_location_names
 from .locations import InventoryLocations
 
 
@@ -102,14 +102,18 @@ def calculate(
     default_me=10,
     default_te=20,
     blueprint_overrides=None,
+    buy_item_ids=(),
 ):
     blueprint_overrides = blueprint_overrides or {}
     validate_blueprints(default_me, default_te, blueprint_overrides)
     policies = {p.item_type_id: p for p in ItemPolicy.objects.filter(user=user)}
     preferences, _ = UserPreferences.objects.get_or_create(user=user)
     locations = InventoryLocations(user, policies)
+    contexts = {}
 
     def context_for(item_id, recipe):
+        if item_id in contexts:
+            return contexts[item_id]
         me, te = blueprint_overrides.get(item_id, (None, None))
         options = {
             "me": (default_me if me is None else me) if recipe.activity == "manufacturing" else 0,
@@ -178,7 +182,8 @@ def calculate(
                 facility_tax=service.facility_tax,
                 scc_surcharge=service.scc_surcharge,
             )
-        return ProductionContext(**options)
+        contexts[item_id] = ProductionContext(**options)
+        return contexts[item_id]
 
     price_rows = {
         p.type_id: p
@@ -187,25 +192,34 @@ def calculate(
         )
     }
     prices = {tid: p.adjusted_price for tid, p in price_rows.items()}
-    result = plan(
-        type_id,
-        quantity,
-        SDERecipes(policies),
-        context_for,
-        {},
-        [p.item_type_id for p in policies.values() if p.buy],
-        prices,
-        stock_by_location=inventory_by_location(user, locations) if use_inventory else {},
-        root_stock_scope=locations.item_scope(type_id),
-    )
-    type_ids = list(result.nodes)
+    recipes = SDERecipes(policies)
+    stock = inventory_by_location(user, locations, include_elsewhere=True) if use_inventory else {}
+    root_scope = locations.item_scope(type_id)
+    policy_buys = {p.item_type_id for p in policies.values() if p.buy}
+    buy_item_ids = set(buy_item_ids)
+
+    def calculate_chain(buy):
+        return plan(
+            type_id,
+            quantity,
+            recipes,
+            context_for,
+            buy=buy,
+            prices=prices,
+            stock_by_location=stock,
+            root_stock_scope=root_scope,
+        )
+
+    result = calculate_chain(policy_buys | buy_item_ids)
+    baseline = calculate_chain(policy_buys).nodes if buy_item_ids - policy_buys else {}
+    type_ids = result.nodes.keys() | baseline.keys() | buy_item_ids
     names = dict(ItemType.objects.filter(pk__in=type_ids).values_list("id", "name"))
     snapshot = {
         "product_id": type_id,
         "quantity": quantity,
         "calculated_at": timezone.now().isoformat(),
         "inventory_used": use_inventory,
-        "inventory_scope": "Stock is limited to each consuming job’s assigned structure and its activity storage. Stock elsewhere or without a structure is excluded. This snapshot is not a stock reservation."
+        "inventory_scope": "Stock counts toward production at each consuming job’s assigned structure and activity storage. Wrong-location stock shows possible transfers. This snapshot is not a stock reservation."
         if use_inventory
         else "Inventory is ignored for this calculation.",
         "blueprint_settings": {
@@ -222,9 +236,32 @@ def calculate(
             for t, n in result.nodes.items()
         },
     }
+    if buy_item_ids:
+        snapshot["purchase_choices"] = {str(t): names.get(t, str(t)) for t in sorted(buy_item_ids)}
+        snapshot["before_purchases"] = {
+            str(t): dict(
+                name=names.get(t, str(t)),
+                required=node.required,
+                runs=node.runs,
+                activity=node.recipe.activity if node.recipe else "",
+                materials=json_safe(node.materials),
+            )
+            for t, node in baseline.items()
+            if node.required
+        }
+    outside_ids = {
+        loc
+        for node in result.nodes.values()
+        for row in node.inventory_requirements
+        for loc in row.get("elsewhere", {})
+    }
+    location_names = locations.names | (
+        stock_location_names(user, outside_ids) if outside_ids else {}
+    )
     for node in snapshot["nodes"].values():
         node["input_inventory"] = []
         node["stock_locations"] = []
+        node["stock_elsewhere"] = []
         if node.get("cost_details"):
             used = node["cost_details"]["materials"]
             times = [price_rows[m["type_id"]].updated_at for m in used]
@@ -249,7 +286,12 @@ def calculate(
                 }
                 for loc, amount in requirement["allocations"].items()
             ]
+            elsewhere = [
+                {"location_id": int(loc), "name": location_names[int(loc)], "quantity": amount}
+                for loc, amount in requirement.get("elsewhere", {}).items()
+            ]
             node["stock_locations"].extend(allocations)
+            node["stock_elsewhere"].extend(elsewhere)
             parent = snapshot["nodes"].get(str(requirement["consumer_id"]))
             if parent is not None:
                 parent["input_inventory"].append(
@@ -260,6 +302,7 @@ def calculate(
                         from_stock=requirement["from_stock"],
                         missing=requirement["quantity"] - requirement["from_stock"],
                         allocations=allocations,
+                        stock_elsewhere=elsewhere,
                     )
                 )
     snapshot["inventory_locations"] = [
@@ -354,7 +397,14 @@ def write_steps(production, result, snapshot):
 
 @transaction.atomic
 def refresh_plan(
-    user, plan_id, *, default_me=None, default_te=None, use_inventory=None, blueprint_overrides=None
+    user,
+    plan_id,
+    *,
+    default_me=None,
+    default_te=None,
+    use_inventory=None,
+    blueprint_overrides=None,
+    purchase_change=None,
 ):
     """Recalculate in place, retaining compatible links and all ESI job records."""
     production = ProductionPlan.objects.select_for_update().get(
@@ -368,6 +418,17 @@ def refresh_plan(
         for o in production.blueprint_overrides.all()
     }
     overrides.update(blueprint_overrides or {})
+    buy_item_ids = set(map(int, production.snapshot.get("purchase_choices", {})))
+    if purchase_change is not None:
+        item_id, buy = purchase_change
+        if item_id not in buy_item_ids and (
+            not buy or not production.snapshot.get("nodes", {}).get(str(item_id), {}).get("runs")
+        ):
+            raise ProductionPlan.DoesNotExist
+        if buy:
+            buy_item_ids.add(item_id)
+        else:
+            buy_item_ids.remove(item_id)
     result, snapshot = calculate(
         user,
         production.item_type_id,
@@ -376,6 +437,7 @@ def refresh_plan(
         default_me=default_me,
         default_te=default_te,
         blueprint_overrides=overrides,
+        buy_item_ids=buy_item_ids,
     )
     production.default_material_efficiency = default_me
     production.default_time_efficiency = default_te

@@ -15,6 +15,10 @@
   const edgeElements = [];
   const formatter = new Intl.NumberFormat(document.documentElement.lang || "en");
   const number = value => formatter.format(value);
+  const edgeAmounts = edge => [
+    edge.quantity ? `${number(edge.quantity)} needed` : "",
+    edge.covered_quantity ? `${number(edge.covered_quantity)} covered by purchase` : "",
+  ].filter(Boolean).join(" · ");
   const element = (tag, className, text) => {
     const el = document.createElement(tag);
     if (className) el.className = className;
@@ -107,8 +111,15 @@
       inspector.append(element("p", "mb-2", `${number(node.stock)} from stock`));
       (node.stock_locations || []).forEach(allocation => inspector.append(element("p", "small mb-1", `${number(allocation.quantity)} at ${allocation.name}${allocation.transfer ? " · transport to the assigned industry location" : ""}`)));
     }
+    if (node.elsewhere_quantity) {
+      const badge = element("span", "aip-state-badge mb-1", "Wrong location");
+      badge.dataset.state = "elsewhere";
+      inspector.append(badge);
+      node.stock_elsewhere.forEach(pile => inspector.append(element("p", "small mb-1", `${number(pile.quantity)} at ${pile.name}`)));
+    }
     if (node.output) inspector.append(element("p", "mb-2", `${number(node.output)} to make · ${number(node.runs)} runs`));
-    if (node.kind === "buy") inspector.append(element("p", "mb-2", `${number(node.missing)} to buy / import`));
+    if (node.kind === "buy" && node.missing) inspector.append(element("p", "mb-2", `${number(node.missing)} to buy / import`));
+    if (node.covered_quantity) inspector.append(element("p", "mb-2", `${number(node.covered_quantity)} covered by purchase`));
     if (node.facility) inspector.append(element("p", "small text-body-secondary", node.facility + (node.system ? ` · ${node.system}` : "")));
     if (node.kind === "manufacturing") inspector.append(element("p", "small", `Blueprint ME ${node.me} / TE ${node.te}`));
     const actions = element("div", "aip-actions mb-3");
@@ -127,7 +138,7 @@
       const list = element("ul", "aip-graph-inputs");
       inputs.forEach(edge => {
         const row = element("li");
-        const button = element("button", "btn btn-link btn-sm p-0 text-start", `${number(edge.quantity)} × ${nodes.get(edge.target).name}`);
+        const button = element("button", "btn btn-link btn-sm p-0 text-start", `${nodes.get(edge.target).name} · ${edgeAmounts(edge)}`);
         button.type = "button"; button.addEventListener("click", () => inspect(edge.target));
         row.append(button); list.append(row);
       });
@@ -139,7 +150,7 @@
       const list = element("ul", "aip-graph-inputs");
       consumers.forEach(edge => {
         const row = element("li");
-        const button = element("button", "btn btn-link btn-sm p-0 text-start", `${nodes.get(edge.source).name} · ${number(edge.quantity)}`);
+        const button = element("button", "btn btn-link btn-sm p-0 text-start", `${nodes.get(edge.source).name} · ${edgeAmounts(edge)}`);
         button.type = "button"; button.addEventListener("click", () => inspect(edge.source));
         row.append(button); list.append(row);
       });
@@ -158,7 +169,7 @@
     path.setAttribute("d", `M ${sx} ${sy} C ${mid} ${sy}, ${mid} ${ty}, ${tx} ${ty}`);
     path.setAttribute("vector-effect", "non-scaling-stroke");
     svg.append(path); edgeElements.push({el: path, edge});
-    path.dataset.state = target.state;
+    path.dataset.state = edge.quantity ? target.state : "covered";
     if (target.shared) path.dataset.shared = "true";
   });
   world.style.width = `${data.width}px`; world.style.height = `${data.height}px`;
@@ -174,11 +185,12 @@
     const heading = element("span", "aip-graph-node-heading");
     heading.append(icon(node.id), element("strong", "aip-graph-node-name", node.name));
     button.append(heading, element("strong", "aip-graph-node-quantity", `Need ${number(node.required)}`));
-    const caption = node.output ? `Make ${number(node.output)}${node.stock ? ` · Stock ${number(node.stock)}` : ""}` : node.kind === "buy" ? `Buy ${number(node.missing)}${node.stock ? ` · Stock ${number(node.stock)}` : ""}` : `Stock ${number(node.stock)}`;
+    const caption = node.state === "covered" ? `${number(node.covered_quantity)} covered` : node.output ? `Make ${number(node.output)}${node.stock ? ` · Stock ${number(node.stock)}` : ""}` : node.kind === "buy" ? `Buy ${number(node.missing)}${node.stock ? ` · Stock ${number(node.stock)}` : ""}` : `Stock ${number(node.stock)}`;
     button.append(element("span", "aip-graph-node-caption", caption));
     button.append(element("span", "aip-graph-node-status", node.state_label));
     const footer = element("span", "aip-graph-node-footer");
-    footer.append(element("span", "aip-graph-kind", node.kind_label), element("span", "", node.step ? `✓ ${node.progress}% · ▶ ${node.ongoing}%` : node.shared ? "Shared input" : ""));
+    const kind = node.elsewhere_quantity && node.state !== "elsewhere" ? element("span", "aip-graph-kind aip-elsewhere-label", "Wrong location") : element("span", "aip-graph-kind", node.kind_label);
+    footer.append(kind, element("span", "", node.step ? `✓ ${node.progress}% · ▶ ${node.ongoing}%` : node.shared ? "Shared input" : ""));
     button.append(footer);
     button.addEventListener("click", () => inspect(node.id));
     button.addEventListener("focus", () => {

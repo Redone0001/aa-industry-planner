@@ -74,6 +74,73 @@ def test_independent_work_fills_slots_before_future_dependencies_are_ready():
     assert result["duration"] == 115
 
 
+def test_twenty_manufacturing_slots_are_shared_by_independent_steps():
+    now = timezone.now()
+    branches = [step(tid, "manufacturing") for tid in range(1, 25)]
+    final = step(25, "manufacturing", deps=range(1, 25))
+    result = estimate_schedule([*branches, final], prefs(manufacturing=20), now=now, root_id=25)
+    assert [row.timing["start_at"] for row in branches[:20]] == [now] * 20
+    assert [row.timing["start_at"] for row in branches[20:]] == [now + timedelta(seconds=10)] * 4
+    assert final.timing["start_at"] == now + timedelta(seconds=20)
+    assert result["duration"] == 30
+
+
+def test_downstream_batches_start_while_later_upstream_batches_are_still_building():
+    now = timezone.now()
+    upstream = step(1, "manufacturing", runs=5, batches=[2, 2, 1])
+    downstream = step(2, "manufacturing", runs=5, batches=[1] * 5)
+    downstream.details["materials"] = {"1": 5}
+    downstream.details["recipe"]["materials"] = {"1": 1}
+    result = estimate_schedule([upstream, downstream], prefs(manufacturing=2), now=now, root_id=2)
+    # Two source jobs finish at t=20, releasing four units and both slots.
+    # The tail uses one slot at t=20 while the first downstream job uses the other.
+    assert upstream.timing["finish_seconds"] == 30
+    assert downstream.timing["start_at"] == now + timedelta(seconds=20)
+    assert result["duration"] == 50
+
+
+def test_two_downstream_jobs_can_start_as_soon_as_one_upstream_batch_finishes():
+    now = timezone.now()
+    upstream = step(1, runs=4, batches=[2, 2])
+    downstream = step(2, "manufacturing", runs=4, seconds=30, batches=[1] * 4)
+    downstream.details["materials"] = {"1": 4}
+    downstream.details["recipe"]["materials"] = {"1": 1}
+    result = estimate_schedule([upstream, downstream], prefs(manufacturing=2), now=now, root_id=2)
+    assert upstream.timing["finish_seconds"] == 40
+    assert downstream.timing["start_at"] == now + timedelta(seconds=20)
+    # Both initial jobs must start at t=20 to free both slots again at t=50.
+    assert result["duration"] == 80
+
+
+def test_shared_input_is_consumed_once_across_ready_branches():
+    now = timezone.now()
+    upstream = step(1, runs=2, batches=[1, 1])
+    left = step(2, "manufacturing", deps=[1])
+    right = step(3, "manufacturing", deps=[1])
+    final = step(4, "manufacturing", deps=[2, 3])
+    result = estimate_schedule(
+        [upstream, left, right, final], prefs(manufacturing=2), now=now, root_id=4
+    )
+    assert left.timing["start_at"] == now + timedelta(seconds=10)
+    assert right.timing["start_at"] == now + timedelta(seconds=20)
+    assert result["duration"] == 40
+
+
+def test_a_smaller_job_can_use_finished_output_before_a_full_batch_is_ready():
+    now = timezone.now()
+    upstream = step(1, runs=6, batches=[3, 3], completed=1)
+    upstream.details["inventory_requirements"] = [{"consumer_id": 2, "from_stock": 2}]
+    downstream = step(2, "manufacturing", runs=3, batches=[2, 1])
+    downstream.details["materials"] = {"1": 8}
+    downstream.details["recipe"]["materials"] = {"1": 3}
+    downstream.details["context"]["material_multiplier"] = "0.7"
+    result = estimate_schedule([upstream, downstream], prefs(), now=now, root_id=2)
+    # The small job uses 3 units, covered by stock and one completed unit.
+    # The 2-run job needs 5 fresh units, delivered by two more upstream batches.
+    assert downstream.timing["start_at"] == now
+    assert result["duration"] == 70
+
+
 def test_jobs_outside_the_plan_reserve_capacity_and_excess_jobs_release_first():
     now = timezone.now()
     rows = [step(1)]
@@ -88,10 +155,24 @@ def test_two_oversize_linked_jobs_cover_output_without_reinstalling_it():
     now = timezone.now()
     linked = [job(now, 40, 9), job(now, 60, 11)]
     rows = [step(1, runs=98, ongoing=98, linked=linked), step(2, "manufacturing", deps=[1])]
+    rows[1].details["materials"] = {"1": 98}
     result = estimate_schedule(rows, prefs(reaction=0), linked, now)
     assert rows[0].timing["remaining_jobs"] == 0
     assert rows[0].timing["finish_seconds"] == 60
     assert result["duration"] == 70
+
+
+def test_a_paused_upstream_job_allows_batches_with_other_inputs_to_start():
+    now = timezone.now()
+    linked = [job(now, 15), job(now, 25, status="paused")]
+    upstream = step(1, runs=2, ongoing=2, linked=linked)
+    downstream = step(2, "manufacturing", runs=2, batches=[1, 1])
+    downstream.details["materials"] = {"1": 2}
+    downstream.details["recipe"]["materials"] = {"1": 1}
+    result = estimate_schedule([upstream, downstream], prefs(), linked, now, root_id=2)
+    assert downstream.timing["start_at"] == now + timedelta(seconds=15)
+    assert downstream.timing["finish_at"] is None
+    assert result["duration"] is None
 
 
 def test_partial_completed_and_ongoing_output_only_schedules_the_remainder():

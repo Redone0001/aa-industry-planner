@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test import Client
 from django.urls import reverse
-from eve_sde.models import ItemCategory, ItemGroup
+from eve_sde.models import ItemCategory, ItemGroup, ItemType
 
 from aa_industry_planner.engine import PlanningError
 from aa_industry_planner.forms import AssignmentForm, PolicyForm, blueprint_rows
@@ -24,6 +24,7 @@ from aa_industry_planner.models import (
 from aa_industry_planner.services.jobs import allocate_job
 from aa_industry_planner.services.planning import calculate, create_plan, refresh_plan
 
+from .conftest import add_recipe
 from .test_services import make_job
 
 pytestmark = pytest.mark.django_db
@@ -57,6 +58,95 @@ def another_service(service, number=2, activity="manufacturing"):
         solar_system=service.facility.solar_system,
     )
     return FacilityService.objects.create(facility=facility, activity=activity)
+
+
+def test_planned_purchase_removes_only_its_share_of_shared_production(user, client, recipes):
+    production = create_plan(user, 1, 10, use_inventory=False)
+    client.force_login(user)
+    purchase_url = reverse("aa_industry_planner:set_plan_purchase", args=[production.pk, 2])
+    plan_url = reverse("aa_industry_planner:plan", args=[production.pk])
+    original = production.snapshot["nodes"]
+    assert client.post(purchase_url, {"action": "buy"}).url == plan_url + "#buy-list"
+    page = client.get(plan_url)
+    inputs = {row["type_id"]: row for row in page.context["inputs"]}
+    steps = {step.item_type_id: step for step in page.context["steps"]}
+    edges = {(e["source"], e["target"]): e for e in page.context["dependency_graph"]["edges"]}
+
+    assert inputs[2]["missing"] == original["2"]["missing"] and inputs[2]["planned_purchase"]
+    assert inputs[5]["missing"] < original["5"]["missing"]
+    assert set(steps) == {1, 3, 4}
+    assert steps[4].details["required"] == original["3"]["materials"]["4"]
+    assert 0 < steps[4].removed_runs < original["4"]["runs"]
+    assert edges[2, 4]["covered_quantity"] == original["2"]["materials"]["4"]
+    assert edges[2, 4]["quantity"] == 0
+    assert edges[3, 4]["quantity"] == original["3"]["materials"]["4"]
+    assert "covered_quantity" not in edges[3, 4]
+    assert b"Make instead" in page.content
+
+    refreshed, _ = refresh_plan(user, production.pk)
+    assert refreshed.snapshot["purchase_choices"] == {"2": "Component A"}
+    assert client.post(purchase_url, {"action": "make"}).status_code == 302
+    production.refresh_from_db()
+    for tid, row in production.snapshot["nodes"].items():
+        for field in ("required", "missing", "runs", "output", "materials"):
+            assert row[field] == original[tid][field]
+    assert "purchase_choices" not in production.snapshot
+
+
+def test_root_purchase_keeps_only_final_output_on_the_buy_list_and_can_be_undone(
+    user, client, recipes
+):
+    production = create_plan(user, 1, 10, use_inventory=False)
+    client.force_login(user)
+    root_url = reverse("aa_industry_planner:set_plan_purchase", args=[production.pk, 1])
+    client.post(root_url, {"action": "buy"})
+    response = client.get(reverse("aa_industry_planner:plan", args=[production.pk]))
+    assert response.context["multibuy"] == "Final product 10"
+    assert not response.context["steps"]
+    assert {row["id"] for row in response.context["covered_steps"]} == {2, 3, 4}
+    assert client.post(root_url, {"action": "make"}).status_code == 302
+    assert production.steps.count() == 4
+
+
+def test_purchase_choices_require_an_active_owned_plan_and_production_step(
+    user, other_user, client, recipes
+):
+    plan = create_plan(user, 1, 1)
+    client.force_login(other_user)
+    url = reverse("aa_industry_planner:set_plan_purchase", args=[plan.pk, 2])
+    assert client.post(url, {"action": "buy"}).status_code == 404
+    client.force_login(user)
+    assert client.get(url).status_code == 405
+    assert client.post(url, {"action": "invalid"}).status_code == 400
+    raw_url = reverse("aa_industry_planner:set_plan_purchase", args=[plan.pk, 5])
+    assert client.post(raw_url, {"action": "buy"}).status_code == 404
+    plan.archived = True
+    plan.save(update_fields=["archived"])
+    assert client.post(url, {"action": "buy"}).status_code == 404
+
+
+def test_buy_list_classifies_inputs_using_sde_groups(user, client, types):
+    material = ItemCategory.objects.create(id=4, name="Material")
+    planetary = ItemCategory.objects.create(id=43, name="Planetary commodities")
+    for tid, group_id, name, category in [
+        (34, 18, "Tritanium", material),
+        (16634, 427, "Cadmium", material),
+        (9846, 1040, "Robotics", planetary),
+    ]:
+        group = ItemGroup.objects.create(id=group_id, name=str(group_id), category=category)
+        types[tid] = ItemType.objects.create(id=tid, name=name, group=group, published=True)
+    add_recipe(types, 1, {34: 10, 16634: 5, 9846: 1, 5: 2})
+    production = create_plan(user, 1, 1, use_inventory=False)
+    client.force_login(user)
+    response = client.get(reverse("aa_industry_planner:plan", args=[production.pk]))
+    assert {row["name"]: row["category"] for row in response.context["inputs"]} == {
+        "Tritanium": "minerals",
+        "Cadmium": "moon-goo",
+        "Robotics": "pi",
+        "Raw input": "",
+    }
+    assert all(available for _, _, available in response.context["copy_categories"])
+    assert b'data-buy-line="Cadmium 5"' in response.content
 
 
 def test_blueprints_default_to_me10_te20_without_affecting_reactions(user, recipes):

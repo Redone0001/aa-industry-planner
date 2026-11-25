@@ -68,6 +68,25 @@ def test_same_material_at_one_factory_cannot_cover_another_activity():
         2: 5,
         3: 0,
     }
+    assert [r["elsewhere"] for r in result.nodes[4].inventory_requirements] == [{}, {10: 5}]
+
+
+def test_shared_stock_elsewhere_is_reported_at_most_once():
+    recipes = {
+        1: Recipe(1, 101, "manufacturing", 1, 60, {2: 1, 3: 1}),
+        2: Recipe(2, 102, "manufacturing", 1, 60, {4: 5}),
+        3: Recipe(3, 103, "manufacturing", 1, 60, {4: 5}),
+    }
+    result = plan(
+        1,
+        1,
+        recipes.get,
+        lambda tid, recipe: ProductionContext(structure_id=10, stock_location_ids=(10,)),
+        stock_by_location={4: {10: 2, 20: 6}},
+    )
+    raw = result.nodes[4]
+    assert (raw.from_stock, raw.missing) == (2, 8)
+    assert sum(row["elsewhere"].get(20, 0) for row in raw.inventory_requirements) == 6
 
 
 @pytest.fixture
@@ -111,6 +130,34 @@ def test_raw_inputs_only_draw_from_the_consuming_activity(user, recipes, source,
         {"location_id": b.structure_id, "name": b.name, "quantity": 7, "transfer": False}
     ]
     assert inventory_totals(user)[5] == 1007
+
+
+def test_inventory_and_plan_show_stock_elsewhere_with_location_and_quantity(
+    user, recipes, source, sites, client
+):
+    a, b, _, outside = sites
+    asset(source, 10, 5, 4, a.structure_id)
+    asset(source, 11, 5, 2, b.structure_id)
+    asset(source, 12, 5, 5, outside.structure_id)
+    asset(source, 13, 100, 1, 1000000099999, location_flag="Hangar")
+    asset(source, 14, 5, 1, 13, location_flag="Unlocked")
+    asset(source, 15, 5, 800, 1000000099998, location_flag="Unlocked")
+
+    client.force_login(user)
+    inventory = client.get(reverse("aa_industry_planner:inventory"))
+    raw = next(row for row in inventory.context["rows"] if row["name"] == recipes[5].name)
+    assert raw["quantity"] == 6
+    assert raw["elsewhere"] == [(outside.name, 5), ("Location #1000000099999", 1)]
+    assert b"Wrong location" in inventory.content
+
+    production = create_plan(user, 1, 3)
+    response = client.get(reverse("aa_industry_planner:plan", args=[production.pk]))
+    shortage = response.context["inputs"][0]
+    assert shortage["missing"] == shortage["required"] - 2
+    assert sum(pile["quantity"] for pile in shortage["stock_elsewhere"]) == 10
+    assert any(pile["name"] == a.name for pile in shortage["stock_elsewhere"])
+    assert response.context["multibuy"] == f"Raw input {shortage['missing']}"
+    assert b"Stock in wrong location" in response.content
 
 
 def test_intermediate_stock_at_its_production_site_is_not_available_to_a_different_consumer(

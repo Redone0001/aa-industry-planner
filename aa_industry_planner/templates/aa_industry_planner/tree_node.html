@@ -1,10 +1,10 @@
 {% if branch.reference %}
-<div class="aip-tree-node aip-tree-shared"><a class="aip-tree-reference" data-tree-reference href="#tree-node-{{ branch.item.id }}">{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity reference=True %}</a></div>
+<div class="aip-tree-node aip-tree-shared"><a class="aip-tree-reference" data-tree-reference href="#tree-node-{{ branch.item.id }}">{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity edge_covered=branch.edge_covered reference=True %}</a></div>
 {% elif branch.children %}
 <details class="aip-tree-node" data-tree-depth="{{ branch.depth }}" id="tree-node-{{ branch.item.id }}" {% if branch.depth == 0 %}open{% endif %}>
-  <summary>{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity expandable=True %}</summary>
+  <summary>{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity edge_covered=branch.edge_covered expandable=True %}</summary>
   <div class="aip-tree-children">{% for child in branch.children %}{% include 'aa_industry_planner/tree_node.html' with branch=child %}{% endfor %}</div>
 </details>
 {% else %}
-<div class="aip-tree-node aip-tree-leaf" id="tree-node-{{ branch.item.id }}" tabindex="-1">{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity %}</div>
+<div class="aip-tree-node aip-tree-leaf" id="tree-node-{{ branch.item.id }}" tabindex="-1">{% include 'aa_industry_planner/tree_row.html' with item=branch.item edge_quantity=branch.edge_quantity edge_covered=branch.edge_covered %}</div>
 {% endif %}

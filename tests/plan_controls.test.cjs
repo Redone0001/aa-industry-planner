@@ -15,9 +15,12 @@ function browser({failSave=false, failCopy=false}={}) {
   let reviewed=false;
   const card={classList:{toggle:(_,checked)=>{reviewed=checked;}}};
   const textarea={value:'Isogen 1200000\nZydrine 2',dataset:{},closest:()=>details,focus(){this.focused=true;},select(){this.selected=true;}};
-  const row={cells:[{textContent:'Isogen'}],querySelector:()=>checkbox};
-  const section={querySelector:selector=>selector==='[data-multibuy-text]'?textarea:status,querySelectorAll:()=>[row]};
-  const buttons=['','unchecked'].map(value=>({dataset:{copyMultibuy:value},closest:()=>section,addEventListener(_,fn){this.click=fn;}}));
+  const rows = [['Isogen 1200000','minerals'],['Zydrine 2','minerals'],['Robotics 8','pi'],['Cadmium 15','moon-goo']].map(([buyLine,buyCategory],index)=>({
+    dataset:{buyLine,buyCategory},classList:{contains:()=>index===0},
+  }));
+  textarea.value=rows.map(row=>row.dataset.buyLine).join('\n');
+  const section={querySelector:selector=>selector==='[data-multibuy-text]'?textarea:status,querySelectorAll:()=>rows};
+  const buttons=['','unchecked','minerals','pi','moon-goo'].map(value=>({dataset:{copyMultibuy:value},closest:()=>section,addEventListener(_,fn){this.click=fn;}}));
   runInNewContext(source,{
     document:{querySelector:()=>null,addEventListener:(event,fn)=>{events[event]=fn;},querySelectorAll:selector=>{
       if(selector==='[data-checklist-save]')return[save];
@@ -58,20 +61,26 @@ test('failed reminder save restores controls without marking the item reviewed',
 test('copy all includes reviewed items and unchecked copy omits them',async()=>{
   const ui=browser();
   await ui.buttons[0].click();
-  assert.equal(ui.copied[0],'Isogen 1200000\nZydrine 2');
+  assert.equal(ui.copied[0],'Isogen 1200000\nZydrine 2\nRobotics 8\nCadmium 15');
   await ui.buttons[1].click();
-  assert.equal(ui.copied[1],'Zydrine 2');
-  assert.match(ui.status.textContent,/Copied 1 item/);
+  assert.equal(ui.copied[1],'Zydrine 2\nRobotics 8\nCadmium 15');
+  assert.match(ui.status.textContent,/Copied 3 items/);
+});
+
+test('category copy includes only lines in the selected category',async()=>{
+  const ui=browser();
+  for (const button of ui.buttons.slice(2)) await button.click();
+  assert.deepEqual(ui.copied,['Isogen 1200000\nZydrine 2','Robotics 8','Cadmium 15']);
 });
 
 test('clipboard denial exposes exactly the requested text and preserves full-list copying',async()=>{
   const ui=browser({failCopy:true});
-  await ui.buttons[1].click();
-  assert.equal(ui.textarea.value,'Zydrine 2');
+  await ui.buttons[4].click();
+  assert.equal(ui.textarea.value,'Cadmium 15');
   assert.equal(ui.details.open,true);
   assert.equal(ui.textarea.selected,true);
   await ui.buttons[0].click();
-  assert.equal(ui.textarea.value,'Isogen 1200000\nZydrine 2');
+  assert.equal(ui.textarea.value,'Isogen 1200000\nZydrine 2\nRobotics 8\nCadmium 15');
 });
 
 function filteredBrowser() {

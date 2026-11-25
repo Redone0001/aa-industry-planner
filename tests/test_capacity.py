@@ -197,7 +197,7 @@ def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_ma
 ):
     from aa_industry_planner.services.planning import create_plan
 
-    preferences = UserPreferences.objects.create(user=user, manufacturing_slots=1, reaction_slots=1)
+    preferences = UserPreferences.objects.create(user=user, manufacturing_slots=1, reaction_slots=2)
     plan = create_plan(user, 1, 1, use_inventory=False)
     snapshot = plan.snapshot.copy()
     client.force_login(user)
@@ -205,6 +205,7 @@ def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_ma
     first = client.get(url)
     assert first.status_code == 200
     assert b"Production timing" in first.content and b"Estimated step finish" in first.content
+    assert b"Each batch can start when a slot is free and its inputs are available" in first.content
     first_duration = first.context["timing"]["duration"]
     preferences.manufacturing_slots = 2
     preferences.save()
@@ -212,3 +213,19 @@ def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_ma
     assert second.context["timing"]["duration"] < first_duration
     plan.refresh_from_db()
     assert plan.snapshot == snapshot
+
+
+def test_saved_plan_forecast_starts_a_branch_before_the_shared_reaction_step_finishes(
+    user, client, recipes
+):
+    from aa_industry_planner.services.planning import create_plan
+
+    UserPreferences.objects.create(user=user, manufacturing_slots=20, reaction_slots=1)
+    plan = create_plan(user, 1, 1, use_inventory=False)
+    client.force_login(user)
+    response = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
+    timings = {step.item_type_id: step.timing for step in response.context["steps"]}
+    assert response.status_code == 200
+    first, second = sorted(timings[tid]["start_at"] for tid in [2, 3])
+    assert first < timings[4]["finish_at"] == second
+    assert response.context["timing"]["slots"] == {"manufacturing": 20, "reaction": 1}
