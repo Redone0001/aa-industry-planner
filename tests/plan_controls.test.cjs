@@ -5,6 +5,28 @@ const {resolve} = require('node:path');
 const {runInNewContext} = require('node:vm');
 const source = readFileSync(resolve(__dirname, '../aa_industry_planner/static/aa_industry_planner/plan_controls.js'), 'utf8');
 
+test('each details panel saves its open or closed state in its own cookie', () => {
+  const panels = ['aip_blueprints', 'aip_reaction_formulas'].map(panelCookie => ({
+    dataset: {panelCookie}, open: false, addEventListener(event, callback) { this[event] = callback; },
+  }));
+  const writes = [];
+  runInNewContext(source, {
+    document: {
+      querySelector: () => null, addEventListener() {},
+      querySelectorAll: selector => selector === '[data-panel-cookie]' ? panels : [],
+      set cookie(value) { writes.push(value); },
+    },
+    location: {protocol: 'https:'},
+  });
+  panels[0].open = true;
+  panels[0].toggle();
+  panels[1].toggle();
+  assert.deepEqual(writes, [
+    'aip_blueprints=open; Path=/; Max-Age=31536000; SameSite=Lax; Secure',
+    'aip_reaction_formulas=closed; Path=/; Max-Age=31536000; SameSite=Lax; Secure',
+  ]);
+});
+
 function browser({failSave=false, failCopy=false}={}) {
   const events={}, copied=[], requests=[];
   const feedback={}, status={}, details={open:false};

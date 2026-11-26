@@ -369,6 +369,7 @@ def test_invalid_blueprint_edits_cannot_change_a_plan(user, client, recipes, pro
     client.force_login(user)
     response = client.post(reverse("aa_industry_planner:refresh_plan", args=[production.pk]), data)
     assert response.status_code == 200
+    assert b' data-panel-cookie="aip_blueprints" open>' in response.content
     production.refresh_from_db()
     assert production.snapshot == snapshot
     assert production.refreshed_at is None

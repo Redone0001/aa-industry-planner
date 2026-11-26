@@ -35,7 +35,7 @@ def test_sdk_optional_asset_values_are_saved_without_nulls(
     response = AssetResponse(
         item_id=42,
         type_id=34,
-        quantity=5,
+        quantity=-2 if copy else 5,
         location_id=assigned_facility.structure_id,
         is_blueprint_copy=copy,
         location_flag=flag,
@@ -68,6 +68,7 @@ def test_sdk_optional_asset_values_are_saved_without_nulls(
         sync_source(source, api)
     asset = Asset.objects.get(source=source, item_id=42)
     assert asset.is_blueprint_copy is (copy is True)
+    assert asset.quantity == (1 if copy else 5)
     assert asset.location_flag == (flag or "")
     assert inventory_totals(user) == ({} if copy else {34: 5})
     job = IndustryJob.objects.get(source=source, job_id=54321)

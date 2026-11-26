@@ -13,9 +13,10 @@
 {% if legacy_inventory_scope %}<div class="alert alert-warning">This saved calculation used pooled inventory. {% if plan.archived %}Restore it and refresh{% else %}Refresh this plan{% endif %} to apply location restrictions.</div>{% endif %}
 {% if legacy_transfers %}<div class="alert alert-info">{% if plan.archived %}Restore and refresh this plan{% else %}Refresh this plan{% endif %} to update wrong-location stock under the current storage settings.</div>{% endif %}
 {% include 'aa_industry_planner/production_timing.html' %}
+{% include 'aa_industry_planner/production_cost.html' %}
 {% include 'aa_industry_planner/plan_overview.html' %}
-<section class="aip-panel card">
-  <h2 class="h5">Blueprint settings</h2>
+<details class="aip-panel card aip-plan-panel" data-panel-cookie="aip_blueprints" {% if request.COOKIES.aip_blueprints == 'open' or settings_form.errors or blueprints_formset.total_error_count %}open{% endif %}>
+  <summary class="h5">Blueprint settings</summary>
   <p>Defaults apply to manufacturing blueprints. Leave an override blank to use the plan default.</p>
   {% if plan.archived %}<p class="text-body-secondary">Restore this plan to edit its blueprint settings or refresh its calculation.</p>{% endif %}
   <form method="post" action="{% url 'aa_industry_planner:refresh_plan' plan.pk %}">
@@ -26,9 +27,17 @@
       <div class="table-responsive"><table class="table table-sm align-middle">
         <thead><tr><th>Manufacturing blueprint</th><th>ME override (%)</th><th>TE override (%)</th><th>BPO/BPC at structure</th></tr></thead>
         <tbody>{% for row in blueprints_formset %}<tr>
-          <td>{{ row.item_type_id }}{{ row.initial.name }}<small>Current ME {{ row.initial.effective_me }} / TE {{ row.initial.effective_te }}</small>{{ row.item_type_id.errors }}{{ row.non_field_errors }}</td>
+          <td>{{ row.item_type_id }}{{ row.blueprint.name|default:row.initial.name }}<small>Current ME {{ row.initial.effective_me }} / TE {{ row.initial.effective_te }}</small>{{ row.item_type_id.errors }}{{ row.non_field_errors }}</td>
           <td>{{ row.material_efficiency }}{{ row.material_efficiency.errors }}</td><td>{{ row.time_efficiency }}{{ row.time_efficiency.errors }}</td>
-          <td>{% if row.facility %}{% if row.found %}<span class="text-success"><span aria-hidden="true">✓</span> Found</span>{% else %}<span class="text-danger"><span aria-hidden="true">✕</span> Missing</span>{% endif %}<small>{{ row.facility.name }}</small>{% else %}<span class="text-body-secondary">No structure</span>{% endif %}</td>
+          <td>
+            {% if row.facility %}
+              {% if row.found %}<span class="text-success"><span aria-hidden="true">✓</span> Found</span>
+              {% elif row.installed %}<span class="text-info">In an imported job</span>
+              {% elif row.elsewhere %}<span class="aip-state-badge" data-state="elsewhere">Wrong location</span><small>{{ row.elsewhere|join:", " }}</small>
+              {% else %}<span class="text-danger"><span aria-hidden="true">✕</span> Missing</span>{% endif %}
+              <small>Assigned to {{ row.facility.name }}</small>
+            {% else %}<span class="text-body-secondary">No structure</span>{% endif %}
+          </td>
         </tr>{% empty %}<tr><td colspan="4">No manufacturing blueprints currently needed.</td></tr>{% endfor %}</tbody>
       </table></div>
       {% if not plan.archived %}<button class="btn btn-primary">Apply blueprint settings & refresh</button>{% endif %}
@@ -36,10 +45,10 @@
   </form>
   <p class="form-text">Blueprint presence uses the latest imported assets. Check a copy’s remaining runs in EVE.</p>
   <p class="form-text">Refresh uses current structures, location assignments, item policies, character settings, prices and system indices. If inventory is enabled, it also uses current stock. Compatible job links are kept; links that no longer match are reported.</p>
-</section>
+</details>
 {% if reaction_rows %}
-<section class="aip-panel card">
-  <h2 class="h5">Reaction formulas</h2>
+<details class="aip-panel card aip-plan-panel" data-panel-cookie="aip_reaction_formulas" {% if request.COOKIES.aip_reaction_formulas == 'open' %}open{% endif %}>
+  <summary class="h5">Reaction formulas</summary>
   <p>Each parallel reaction job needs its own formula at the assigned structure. Formulas in jobs become available again after delivery.</p>
   {% if legacy_formula_jobs %}<p class="text-warning">Some imported jobs predate formula tracking. Refresh sources to confirm the formula counts.</p>{% endif %}
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
@@ -49,7 +58,7 @@
       <td class="number">{{ row.supply.total|quantity }}</td><td class="number">{{ row.supply.reserved|length|quantity }}</td><td class="number">{{ row.supply.available|quantity }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
-</section>
+</details>
 {% endif %}
 
 <section class="aip-panel card" id="production-sequence" data-step-sequence><div class="aip-section-heading"><h2 class="h5">Production sequence</h2><span class="text-body-secondary" data-step-filter-count role="status">{{ steps|length }} steps · inputs first</span></div>

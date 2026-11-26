@@ -22,6 +22,7 @@ from aa_industry_planner.models import (
     UserPreferences,
 )
 
+from .costs import refresh_market_prices
 from .inventory import inventory_by_location
 from .locations import InventoryLocations
 
@@ -461,6 +462,8 @@ def refresh_plan(
         blueprint_overrides=overrides,
         buy_item_ids=buy_item_ids,
     )
+    if "market_prices" in production.snapshot:
+        snapshot["market_prices"] = production.snapshot["market_prices"]
     production.default_material_efficiency = default_me
     production.default_time_efficiency = default_te
     production.use_inventory = use_inventory
@@ -503,6 +506,8 @@ def refresh_plan(
 
     evaluate_watches(user)
     queue_source_refresh(user)
+    if purchase_change is None:
+        transaction.on_commit(lambda: refresh_market_prices(production))
     return production, detached
 
 

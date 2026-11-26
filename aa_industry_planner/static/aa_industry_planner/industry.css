@@ -41,6 +41,9 @@
 .aip-stats strong { display: block; font-size: 2rem; font-weight: 500; margin-block: .25rem; }
 
 .aip-panel { min-width: 0; padding: 1.25rem; margin-bottom: 1.5rem; }
+.aip-panel.aip-plan-panel { display: block; }
+.aip-plan-panel > summary { cursor: pointer; margin-bottom: 0; }
+.aip-plan-panel[open] > summary { margin-bottom: 1rem; }
 .aip-two-col {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(0, 1.5fr);

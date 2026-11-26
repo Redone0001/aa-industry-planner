@@ -359,7 +359,7 @@ def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
         source=source,
         type_id=101,
         item_id=2002,
-        quantity=1,
+        quantity=0,
         location_id=2001,
         is_blueprint_copy=True,
     )
@@ -368,6 +368,7 @@ def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
         structure_id=location + 1,
         solar_system=Facility.objects.get(structure_id=location).solar_system,
     )
+    FacilityService.objects.create(facility=elsewhere, activity="manufacturing")
     Asset.objects.create(
         source=source,
         type_id=102,
@@ -405,6 +406,7 @@ def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
         response = client.get(url)
         assert b"Reaction formulas" in response.content
         assert "✓".encode() in response.content and "✕".encode() in response.content
+        assert b"Wrong location</span><small>Other structure" in response.content
         assert {
             row.initial["item_type_id"]: row.found for row in response.context["blueprints_formset"]
         } == {1: True, 2: False, 3: False}
@@ -416,7 +418,22 @@ def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
 
         reaction_asset.delete()
         IndustryJob.objects.filter(job_id__in=[201, 202]).update(status="delivered")
+        make_job(
+            user,
+            source,
+            job_id=203,
+            blueprint_type_id=103,
+            blueprint_item_id=2005,
+            product_type_id=3,
+            facility_id=location,
+            installer_id=99999999,
+        )
+        client.cookies["aip_blueprints"] = "open"
+        client.cookies["aip_reaction_formulas"] = "closed"
         response = client.get(url)
+        assert b' data-panel-cookie="aip_blueprints" open>' in response.content
+        assert b' data-panel-cookie="aip_reaction_formulas" >' in response.content
+        assert b"In an imported job" in response.content
         assert response.context["timing"]["duration"] is None
         assert response.context["reaction_rows"][0]["supply"].total == 0
         assert b"No reaction formula found at the assigned structure" in response.content

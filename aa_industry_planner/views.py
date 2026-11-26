@@ -1,3 +1,4 @@
+from collections import defaultdict
 from functools import wraps
 from urllib.parse import urlencode
 
@@ -57,8 +58,14 @@ from .models import (
     SystemCostIndex,
     UserPreferences,
 )
-from .services.blueprints import FormulaSupply, reaction_formula_inventory, reaction_formula_key
+from .services.blueprints import (
+    FormulaSupply,
+    installed_blueprints,
+    reaction_formula_inventory,
+    reaction_formula_key,
+)
 from .services.capacity import capacity_status
+from .services.costs import plan_cost, purchase_quantities
 from .services.gas import gas_multibuy
 from .services.inventory import (
     assets_at_locations,
@@ -242,6 +249,9 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     for row in blueprints_formset:
         tid = row.initial.get("item_type_id")
         step = step_map.get(tid)
+        row.blueprint_type_id = (
+            step.blueprint_type_id if step else row.initial.get("blueprint_type_id")
+        )
         service = step.service if step else None
         if step is None and tid:
             service = locations.service_for(tid, "manufacturing")
@@ -262,20 +272,40 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
             facility = step.service.facility if step.service_id in services else None
             reaction_sites[key] = facility if facility and facility.structure_id == key[1] else None
     formula_keys = {key for key, facility in reaction_sites.items() if facility}
-    asset_locations = set(locations.names) | blueprint_locations | {loc for _, loc in formula_keys}
+    blueprint_types = {row.blueprint_type_id for row in blueprints_formset if row.blueprint_type_id}
+    blueprint_sites = locations.transfer_names if blueprint_types else {}
+    asset_locations = (
+        set(locations.names)
+        | blueprint_locations
+        | {loc for _, loc in formula_keys}
+        | blueprint_sites.keys()
+    )
     sources = authorized_sources(request.user).filter(include_in_planning=True)
     assets = list(assets_at_locations(sources, asset_locations))
-    blueprint_types = {row.initial.get("blueprint_type_id") for row in blueprints_formset}
-    found = {
-        (asset["type_id"], location)
-        for asset, location in assets
-        if asset["quantity"] and asset["type_id"] in blueprint_types
-    }
+    found = defaultdict(set)
+    for asset, location in assets:
+        if asset["type_id"] in blueprint_types and (
+            asset["is_blueprint_copy"] or asset["quantity"]
+        ):
+            found[asset["type_id"]].add(location)
+    installed = installed_blueprints(request.user, sources, blueprint_types, blueprint_locations)
+    blueprint_names = ItemType.objects.in_bulk(blueprint_types)
     for row in blueprints_formset:
-        row.found = bool(
-            getattr(row, "facility", None)
-            and (row.initial.get("blueprint_type_id"), row.facility.structure_id) in found
-        )
+        tid = row.blueprint_type_id
+        row.blueprint = blueprint_names.get(tid)
+        row.found = False
+        if getattr(row, "facility", None):
+            destination = row.facility.structure_id
+            row.found = destination in found[tid]
+            row.installed = (tid, destination) in installed
+            row.elsewhere = sorted(
+                (
+                    blueprint_sites[location]
+                    for location in found[tid] & blueprint_sites.keys()
+                    if location != destination
+                ),
+                key=str.casefold,
+            )
     reaction_formulas = reaction_formula_inventory(request.user, sources, formula_keys, assets)
     formula_types = ItemType.objects.in_bulk({tid for tid, _ in reaction_sites})
     reaction_rows = [
@@ -323,9 +353,8 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     purchase_choices = snapshot.get("purchase_choices", {})
     inputs = sorted(
         (
-            dict(n, checked=int(tid) in checked, planned_purchase=tid in purchase_choices)
-            for tid, n in nodes.items()
-            if n["missing"] and not n["runs"]
+            dict(nodes[tid], checked=int(tid) in checked, planned_purchase=tid in purchase_choices)
+            for tid in purchase_quantities(nodes)
         ),
         key=lambda row: row["name"].casefold(),
     )
@@ -374,6 +403,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         plan=production,
         steps=steps,
         timing=timing,
+        cost=plan_cost(snapshot),
         capacity=capacity,
         tree=tree,
         dependency_graph=dependency_graph,

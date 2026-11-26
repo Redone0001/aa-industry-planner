@@ -17,6 +17,21 @@ class FormulaSupply:
         return self.available + len(self.reserved)
 
 
+def installed_blueprints(user, sources, type_ids, locations):
+    if not type_ids or not locations:
+        return set()
+    return set(
+        IndustryJob.objects.filter(
+            user=user,
+            source__in=sources,
+            activity_id=1,
+            status__in=["active", "paused", "ready"],
+            blueprint_type_id__in=type_ids,
+            facility_id__in=locations,
+        ).values_list("blueprint_type_id", "facility_id")
+    )
+
+
 def reaction_formula_key(step):
     location = (step.details.get("context") or {}).get("structure_id")
     if location is None and step.service_id:

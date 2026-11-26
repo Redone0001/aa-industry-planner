@@ -1,0 +1,28 @@
+{% load industry %}
+<section class="aip-panel card" id="production-cost">
+  <h2 class="h5">Production cost</h2>
+  <dl class="row mb-2">
+    <div class="col-sm-4">
+      <dt>Inputs to buy</dt>
+      <dd>{% if cost.input_cost != None %}{{ cost.input_cost|compact_isk }}{% else %}Unavailable{% endif %}</dd>
+    </div>
+    <div class="col-sm-4">
+      <dt>Production fees</dt>
+      <dd>{% if cost.fees != None %}{{ cost.fees|compact_isk }}{% else %}Unavailable{% endif %}</dd>
+    </div>
+    <div class="col-sm-4">
+      <dt>{% if cost.missing_inputs or cost.missing_fees %}Known subtotal{% else %}Estimated total{% endif %}</dt>
+      <dd class="fw-bold">{% if cost.total != None %}{{ cost.total|compact_isk }}{% else %}Unavailable{% endif %}</dd>
+    </div>
+  </dl>
+  <p class="form-text mb-1">Inputs use Janice’s Jita 4-4 sell prices and the saved buy list. Fees cover all production jobs in the saved plan.</p>
+  {% if cost.fetched_at %}<p class="form-text mb-1">Prices fetched {{ cost.fetched_at|date:'d M Y H:i T' }}.</p>{% endif %}
+  {% if cost.refresh_failed %}<p class="text-warning mb-1">Janice pricing could not be refreshed.{% if cost.fetched_at %} Showing the last saved quotes.{% endif %}</p>{% endif %}
+  {% if cost.missing_inputs %}
+    <p class="text-warning mb-1">{{ cost.missing_inputs }} input type{{ cost.missing_inputs|pluralize }} without a quote.
+      {% if not cost.janice_configured %}Set JANICE_API_KEY in Alliance Auth settings to enable pricing.
+      {% elif not cost.fetched_at and not cost.refresh_failed %}Refresh this plan to fetch prices.{% endif %}
+    </p>
+  {% endif %}
+  {% if cost.missing_fees %}<p class="text-warning mb-0">{{ cost.missing_fees }} production step{{ cost.missing_fees|pluralize }} without a fee estimate. Check the installation fee details on those steps.</p>{% endif %}
+</section>

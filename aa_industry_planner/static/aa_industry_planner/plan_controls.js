@@ -1,5 +1,11 @@
 (() => {
   "use strict";
+  document.querySelectorAll("[data-panel-cookie]").forEach(panel => {
+    panel.addEventListener("toggle", () => {
+      const secure = location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `${panel.dataset.panelCookie}=${panel.open ? "open" : "closed"}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+    });
+  });
   let applyStepFilter = () => {};
   const sequence = document.querySelector("[data-step-sequence]");
   if (sequence) {

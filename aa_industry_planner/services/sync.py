@@ -72,7 +72,7 @@ def sync_source(source, api=None):
                     source=source,
                     item_id=a["item_id"],
                     type_id=a["type_id"],
-                    quantity=max(0, a["quantity"]),
+                    quantity=max(int(bool(a.get("is_blueprint_copy"))), a["quantity"]),
                     location_id=a["location_id"],
                     # The SDK represents omitted optional properties as None.
                     location_flag=a.get("location_flag") or "",

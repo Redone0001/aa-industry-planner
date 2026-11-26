@@ -2,7 +2,7 @@
 
 An installable Alliance Auth application for industrialists. It plans manufacturing and reaction chains from EVE SDE recipes, tracks connected industry jobs, and maintains inventory targets.
 
-Version 0.5.0 checks for manufacturing blueprints at each job structure and limits parallel reaction estimates to the formulas available there. Version 0.4.0 introduced personal storage locations by EVE ID and fixed the MySQL collation error in job reminders. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
+Version 0.6.0 adds saved Janice input pricing, collapsible blueprint and formula panels, and more accurate BPC availability. Version 0.5.0 introduced local blueprint checks and reaction estimates based on formula availability. Automated tests use real Alliance Auth 5.6, Django 5.2 and eveuniverse 2.2 models on SQLite, with both SDE 0.2.0 / django-esi 10.1.0 / modeltranslation 0.19.17 and SDE 2.0.0 / django-esi 10.2.0 / modeltranslation 0.20.6 compatibility profiles.
 
 ## Features
 
@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.6.0"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.6.0"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.6.0"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.5.0" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.6.0" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -271,6 +271,10 @@ Use **Sidebar badge** in the same section to show empty slots and jobs awaiting 
 Manufacturing and reaction jobs each share their own slot pool across all branches. Each saved batch starts when a slot is free and its full input quantities are available. Finished upstream batches release their output for downstream jobs while later upstream batches continue. Shared output is consumed once across branches. Imported active/paused jobs installed by your owned characters reserve capacity, including jobs outside the plan. A paused job or an active job past its reported end needs an ESI status update to forecast its slot release. Already installed jobs count toward remaining demand, including inputs they consumed when they started. The forecast uses saved stock allocations and assumes buy/import inputs and manufacturing blueprints are available now and that delivery and hauling are immediate. Forecasts over 50,000 remaining jobs require larger batches.
 
 **Blueprint settings** checks for the exact BPO or BPC type at the saved manufacturing structure using included ESI assets. **Reaction formulas** shows local counts, including formulas held by imported active, paused and ready-to-deliver jobs. The planner matches installed formula item IDs to assets to avoid double-counting. A reaction batch needs a free slot and its own formula. The estimate reuses a formula after the previous batch is delivered. Refresh your existing ESI sources after upgrade to fill in the item IDs for jobs already imported.
+
+Both panels remember their open or closed state in browser cookies. Blueprint status can also identify a matching blueprint used by an imported manufacturing job or present at another configured location.
+
+**Production cost** below timing combines the cost of the saved buy list with the saved manufacturing and reaction installation fees. Configure `JANICE_API_KEY` in Alliance Auth’s `local.py` and use **Refresh plan** to fetch Jita 4-4 sell quotes. Applying blueprint settings also refreshes quotes. Opening a plan and changing a buy choice use the saved quotes. The cost panel shows a known subtotal when an input quote or fee estimate is missing. [Janice API documentation](https://janice.e-351.com/api/rest/docs/index.html)
 
 For each activity, optionally set **active jobs below a minimum**, **idle slots above a maximum**, or both. Blank disables that condition; idle limit `0` warns when any slot is idle. Idle means not producing and includes ready-to-deliver jobs, which are shown separately so you can deliver them before reusing those slots. Paused jobs occupy slots but do not count as active or idle. Counts use ESI-reported status. Alerts fire once per warning episode and rearm after recovery or a change to that activity's thresholds/slots. Notifications can disable this event or send it through existing opt-in Discord DMs. Alerts wait for error-free imports no older than 30 minutes from every configured ESI source; missing/revoked sources must be reconnected or removed. The existing `evaluate_all_watches` Beat task now checks slot warnings too, so no additional schedule is required. Successful imports also evaluate them.
 
