@@ -38,20 +38,26 @@ def test_monitor_groups_structures_with_one_latest_index_strip_and_chart(monitor
             cost_index=cost,
             recorded_at=now - timedelta(minutes=minutes),
         )
-    SystemCostIndex.objects.create(
-        solar_system=system,
-        activity="manufacturing",
-        cost_index=".0023",
-        recorded_at=now,
-    )
+    for activity, cost in [
+        ("manufacturing", ".0023"),
+        ("researching_time_efficiency", ".0027"),
+        ("researching_material_efficiency", ".0036"),
+    ]:
+        SystemCostIndex.objects.create(
+            solar_system=system, activity=activity, cost_index=cost, recorded_at=now
+        )
     with CaptureQueriesContext(connection) as queries:
         response = monitor.get(reverse("aa_industry_planner:facilities"))
     assert response.status_code == 200
     systems = response.context["systems"]
     assert [entry["name"] for entry in systems] == ["Another system", "Jita"]
     assert systems[1]["facilities"] == [facility.facility, second]
-    assert [index.activity for index in systems[1]["indices"]] == ["manufacturing", "reaction"]
-    assert systems[1]["indices"][1].cost_index == Decimal(".0042")
+    assert [(index.label, index.cost_index) for index in systems[1]["indices"]] == [
+        ("Manufacturing", Decimal(".0023")),
+        ("Reactions", Decimal(".0042")),
+        ("ME research", Decimal(".0036")),
+        ("TE research", Decimal(".0027")),
+    ]
     html = response.content.decode()
     assert html.count("data-index-history=") == 2
     assert html.count('data-index-activity="reaction"') == 1

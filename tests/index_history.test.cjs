@@ -49,7 +49,9 @@ const reactionLines = ui => ui.frame.strokes.filter(stroke => stroke.colour === 
 
 test('reactions retain a thick magenta line above overlapping activities regardless of response order', async () => {
   const ui = await browser([
+    sample('researching_time_efficiency', '.0042', 2), sample('researching_material_efficiency', '.0042', 2),
     sample('reaction', '.0042', 2), sample('manufacturing', '.0042', 2),
+    sample('researching_time_efficiency', '.0042', 1), sample('researching_material_efficiency', '.0042', 1),
     sample('reaction', '.0042', 1), sample('manufacturing', '.0042', 1),
   ]);
   assert.equal(ui.requests.length, 1);
@@ -61,6 +63,9 @@ test('reactions retain a thick magenta line above overlapping activities regardl
   assert.ok(lines.at(-1).path[0].x < lines.at(-1).path[1].x);
   assert.equal(ui.frame.dots.length, 2);
   assert.equal(ui.key('reaction').attributes['aria-pressed'], 'true');
+  assert.deepEqual(ui.legend.children.map(key => key.children[1].textContent), [
+    'Manufacturing', 'ME research', 'TE research', 'Reactions',
+  ]);
 });
 
 test('isolating reactions rescales the chart and show all restores every activity', async () => {

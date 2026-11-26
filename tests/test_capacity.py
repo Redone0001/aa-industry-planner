@@ -353,6 +353,8 @@ def test_saved_plan_forecast_starts_a_branch_before_the_shared_reaction_step_fin
 def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
     user, client, recipes, reaction_asset
 ):
+    recipes[104].name = 'Shared "A & B" Reaction Formula'
+    recipes[104].save(update_fields=["name"])
     source, location = reaction_asset.source, reaction_asset.location_id
     Asset.objects.create(source=source, type_id=100, item_id=2001, quantity=1, location_id=location)
     Asset.objects.create(
@@ -405,6 +407,11 @@ def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
     with patch("aa_industry_planner.services.scheduling.timezone.now", return_value=now):
         response = client.get(url)
         assert b"Reaction formulas" in response.content
+        assert b'data-copy-name-button aria-label="Copy Final blueprint"' in response.content
+        assert (
+            b'data-copy-name-button aria-label="Copy Shared &quot;A &amp; B&quot; Reaction Formula"'
+            in response.content
+        )
         assert "✓".encode() in response.content and "✕".encode() in response.content
         assert b"Wrong location</span><small>Other structure" in response.content
         assert {
@@ -437,3 +444,11 @@ def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
         assert response.context["timing"]["duration"] is None
         assert response.context["reaction_rows"][0]["supply"].total == 0
         assert b"No reaction formula found at the assigned structure" in response.content
+
+    plan.archived = True
+    plan.save(update_fields=["archived"])
+    response = client.get(url)
+    assert response.context["blueprints_formset"][0].fields["material_efficiency"].disabled
+    assert response.content.index(b"</fieldset>") < response.content.index(
+        b'data-copy-name-button aria-label="Copy Final blueprint"'
+    )

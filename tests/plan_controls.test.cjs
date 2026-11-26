@@ -119,6 +119,34 @@ test('clipboard denial exposes exactly the requested text and preserves full-lis
   assert.equal(ui.textarea.value,'Isogen 1200000\nZydrine 2\nRobotics 8\nCadmium 15');
 });
 
+test('name buttons copy exact names and select the name when clipboard access fails', async () => {
+  const name = {textContent: 'Shared "A & B" Reaction Formula'};
+  const button = {addEventListener(event, callback) { this[event] = callback; }};
+  const status = {};
+  const fields = {'[data-copy-name-text]': name, '[data-copy-name-button]': button, '[data-copy-name-status]': status};
+  const control = {querySelector: selector => fields[selector]};
+  const copied = [], selected = [];
+  const navigator = {clipboard: {writeText: async text => { copied.push(text); }}};
+  runInNewContext(source, {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: selector => selector === '[data-copy-name]' ? [control] : [],
+      addEventListener() {},
+    },
+    navigator,
+    window: {getSelection: () => ({selectAllChildren: element => selected.push(element)})},
+  });
+  await button.click();
+  assert.deepEqual(copied, ['Shared "A & B" Reaction Formula']);
+  assert.equal(status.textContent, 'Name copied.');
+  assert.deepEqual(selected, []);
+
+  delete navigator.clipboard;
+  await button.click();
+  assert.deepEqual(selected, [name]);
+  assert.equal(status.textContent, 'Copy the selected name manually.');
+});
+
 function filteredBrowser() {
   const events={}, windowEvents={}, select={value:'all',focus(){this.focused=true;},addEventListener(type,fn){this[type]=fn;}};
   const counter={}, empty={}, controls={}, reset={addEventListener(_,fn){this.click=fn;}};

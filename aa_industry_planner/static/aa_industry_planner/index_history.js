@@ -3,8 +3,8 @@
   // Key colours by activity, rather than the order ESI returns its samples.
   const styles = {
     manufacturing: {label: "Manufacturing", colour: "#3689e0", dash: [8, 4]},
-    researching_time_efficiency: {label: "TE research", colour: "#e19b20", dash: [3, 3]},
     researching_material_efficiency: {label: "ME research", colour: "#4bab78", dash: [10, 3, 2, 3]},
+    researching_time_efficiency: {label: "TE research", colour: "#e19b20", dash: [3, 3]},
     copying: {label: "Copying", colour: "#9e84e8", dash: [6, 3]},
     invention: {label: "Invention", colour: "#4aafb9", dash: [2, 4]},
     // Draw reactions last so an identical series cannot cover the reaction line.

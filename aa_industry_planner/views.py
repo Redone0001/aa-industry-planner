@@ -259,7 +259,9 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
             row.facility = service.facility
             blueprint_locations.add(row.facility.structure_id)
         for name, label in [("material_efficiency", "ME"), ("time_efficiency", "TE")]:
-            row.fields[name].widget.attrs.update(
+            field = row.fields[name]
+            field.disabled = production.archived
+            field.widget.attrs.update(
                 placeholder="Plan default",
                 style="max-width: 8rem",
                 **{"aria-label": f"{row.initial.get('name', 'Blueprint')} {label} override (%)"},
@@ -311,6 +313,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
     reaction_rows = [
         dict(
             name=formula_types[tid].name if tid in formula_types else f"Formula #{tid}",
+            name_known=tid in formula_types,
             facility=facility,
             supply=reaction_formulas.get((tid, location), FormulaSupply()),
         )
@@ -1154,8 +1157,8 @@ def facilities(request):
     labels = {
         "manufacturing": "Manufacturing",
         "reaction": "Reactions",
-        "researching_time_efficiency": "TE research",
         "researching_material_efficiency": "ME research",
+        "researching_time_efficiency": "TE research",
         "copying": "Copying",
         "invention": "Invention",
     }

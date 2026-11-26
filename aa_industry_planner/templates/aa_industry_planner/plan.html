@@ -23,25 +23,25 @@
     {% csrf_token %}<input type="hidden" name="form" value="blueprints">
     <fieldset {% if plan.archived %}disabled{% endif %}>
       <div class="row g-3 align-items-center">{% include 'aa_industry_planner/form_fields.html' with form=settings_form field_class='col-sm-4' %}</div>
-      {{ blueprints_formset.management_form }}{{ blueprints_formset.non_form_errors }}
-      <div class="table-responsive"><table class="table table-sm align-middle">
-        <thead><tr><th>Manufacturing blueprint</th><th>ME override (%)</th><th>TE override (%)</th><th>BPO/BPC at structure</th></tr></thead>
-        <tbody>{% for row in blueprints_formset %}<tr>
-          <td>{{ row.item_type_id }}{{ row.blueprint.name|default:row.initial.name }}<small>Current ME {{ row.initial.effective_me }} / TE {{ row.initial.effective_te }}</small>{{ row.item_type_id.errors }}{{ row.non_field_errors }}</td>
-          <td>{{ row.material_efficiency }}{{ row.material_efficiency.errors }}</td><td>{{ row.time_efficiency }}{{ row.time_efficiency.errors }}</td>
-          <td>
-            {% if row.facility %}
-              {% if row.found %}<span class="text-success"><span aria-hidden="true">✓</span> Found</span>
-              {% elif row.installed %}<span class="text-info">In an imported job</span>
-              {% elif row.elsewhere %}<span class="aip-state-badge" data-state="elsewhere">Wrong location</span><small>{{ row.elsewhere|join:", " }}</small>
-              {% else %}<span class="text-danger"><span aria-hidden="true">✕</span> Missing</span>{% endif %}
-              <small>Assigned to {{ row.facility.name }}</small>
-            {% else %}<span class="text-body-secondary">No structure</span>{% endif %}
-          </td>
-        </tr>{% empty %}<tr><td colspan="4">No manufacturing blueprints currently needed.</td></tr>{% endfor %}</tbody>
-      </table></div>
-      {% if not plan.archived %}<button class="btn btn-primary">Apply blueprint settings & refresh</button>{% endif %}
     </fieldset>
+    {{ blueprints_formset.management_form }}{{ blueprints_formset.non_form_errors }}
+    <div class="table-responsive"><table class="table table-sm align-middle">
+      <thead><tr><th>Manufacturing blueprint</th><th>ME override (%)</th><th>TE override (%)</th><th>BPO/BPC at structure</th></tr></thead>
+      <tbody>{% for row in blueprints_formset %}<tr>
+        <td>{{ row.item_type_id }}{% if row.blueprint %}{% include 'aa_industry_planner/copy_name.html' with name=row.blueprint.name only %}{% else %}{{ row.initial.name }}{% endif %}<small>Current ME {{ row.initial.effective_me }} / TE {{ row.initial.effective_te }}</small>{{ row.item_type_id.errors }}{{ row.non_field_errors }}</td>
+        <td>{{ row.material_efficiency }}{{ row.material_efficiency.errors }}</td><td>{{ row.time_efficiency }}{{ row.time_efficiency.errors }}</td>
+        <td>
+          {% if row.facility %}
+            {% if row.found %}<span class="text-success"><span aria-hidden="true">✓</span> Found</span>
+            {% elif row.installed %}<span class="text-info">In an imported job</span>
+            {% elif row.elsewhere %}<span class="aip-state-badge" data-state="elsewhere">Wrong location</span><small>{{ row.elsewhere|join:", " }}</small>
+            {% else %}<span class="text-danger"><span aria-hidden="true">✕</span> Missing</span>{% endif %}
+            <small>Assigned to {{ row.facility.name }}</small>
+          {% else %}<span class="text-body-secondary">No structure</span>{% endif %}
+        </td>
+      </tr>{% empty %}<tr><td colspan="4">No manufacturing blueprints currently needed.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if not plan.archived %}<button class="btn btn-primary">Apply blueprint settings & refresh</button>{% endif %}
   </form>
   <p class="form-text">Blueprint presence uses the latest imported assets. Check a copy’s remaining runs in EVE.</p>
   <p class="form-text">Refresh uses current structures, location assignments, item policies, character settings, prices and system indices. If inventory is enabled, it also uses current stock. Compatible job links are kept; links that no longer match are reported.</p>
@@ -54,7 +54,7 @@
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
     <thead><tr><th>Formula</th><th>Structure</th><th class="number">Total</th><th class="number">In jobs</th><th class="number">Available</th></tr></thead>
     <tbody>{% for row in reaction_rows %}<tr>
-      <td>{{ row.name }}</td><td>{{ row.facility.name|default:"No structure" }}</td>
+      <td>{% if row.name_known %}{% include 'aa_industry_planner/copy_name.html' with name=row.name only %}{% else %}{{ row.name }}{% endif %}</td><td>{{ row.facility.name|default:"No structure" }}</td>
       <td class="number">{{ row.supply.total|quantity }}</td><td class="number">{{ row.supply.reserved|length|quantity }}</td><td class="number">{{ row.supply.available|quantity }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>

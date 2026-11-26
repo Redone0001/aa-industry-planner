@@ -110,6 +110,19 @@
   });
   document.querySelectorAll('[data-checklist-save]').forEach(button => { button.hidden = true; });
   document.querySelectorAll('[data-checklist]').forEach(form => form.addEventListener("click", event => event.stopPropagation()));
+  document.querySelectorAll('[data-copy-name]').forEach(control => {
+    const name = control.querySelector('[data-copy-name-text]');
+    const status = control.querySelector('[data-copy-name-status]');
+    control.querySelector('[data-copy-name-button]').addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(name.textContent);
+        status.textContent = "Name copied.";
+      } catch {
+        window.getSelection().selectAllChildren(name);
+        status.textContent = "Copy the selected name manually.";
+      }
+    });
+  });
   document.querySelectorAll('[data-copy-multibuy]').forEach(button => button.addEventListener("click", async () => {
     const section = button.closest('[data-buy-list]');
     const textarea = section.querySelector('[data-multibuy-text]');
