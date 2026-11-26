@@ -1,6 +1,7 @@
 """Readable tree metadata and a layered dependency graph from a saved plan."""
 
 from collections import defaultdict, deque
+from decimal import Decimal
 
 from django.utils.dateparse import parse_datetime
 
@@ -9,6 +10,26 @@ NODE_HEIGHT = 136
 ROW_GAP = 26
 COLUMN_GAP = 92
 PADDING = 32
+
+
+def plan_progress(steps):
+    """Weight finished and installed output by each step's planned job time."""
+    total = 0
+    completed = installed = Decimal(0)
+    for step in steps:
+        output = step.output_quantity
+        if not output:
+            continue
+        weight = step.details.get("estimated_seconds") or step.runs or 1
+        total += weight
+        completed += Decimal(weight) * min(output, step.completed_quantity) / output
+        installed += (
+            Decimal(weight) * min(output, step.completed_quantity + step.ongoing_quantity) / output
+        )
+    if not total:
+        return None
+    complete_percent = int(100 * completed / total)
+    return dict(completed=complete_percent, ongoing=int(100 * installed / total) - complete_percent)
 
 
 def fee_presentation(details):

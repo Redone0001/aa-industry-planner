@@ -19,7 +19,7 @@
       </tbody>
     </table>
   </div>
-  <p class="form-text mb-1">All inputs include materials on hand and missing purchases. The total adds all planned production fees to that value.</p>
+  <p class="form-text mb-1">All inputs include stock on hand.</p>
   {% if cost.fetched_at %}<p class="form-text mb-1">Jita 4-4 quotes fetched from Janice {{ cost.fetched_at|date:'d M Y H:i T' }}.</p>{% endif %}
   {% if cost.refresh_failed %}<p class="text-warning mb-1">Janice pricing could not be refreshed.{% if cost.fetched_at %} Showing the last saved quotes.{% endif %}</p>{% endif %}
   {% if cost.missing_quotes.buy or cost.missing_quotes.sell %}
@@ -30,5 +30,5 @@
       {% elif not cost.refresh_failed %}Refresh this plan to fetch prices.{% endif %}
     </p>
   {% endif %}
-  {% if cost.missing_fees %}<p class="text-warning mb-0">{{ cost.missing_fees }} production step{{ cost.missing_fees|pluralize }} without a fee estimate. Check the installation fee details on those steps.</p>{% endif %}
+  {% if cost.missing_fees %}<p class="text-warning mb-0">{{ cost.missing_fees }} step{{ cost.missing_fees|pluralize }} without a fee estimate.</p>{% endif %}
 </section>

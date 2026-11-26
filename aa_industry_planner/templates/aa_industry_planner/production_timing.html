@@ -1,7 +1,38 @@
 {% load industry %}
 <section class="aip-panel card" id="production-timing">
-  <div class="aip-section-heading"><div><h2 class="h5">Production timing</h2><p>{{ timing.slots.manufacturing }} manufacturing slots · {{ timing.slots.reaction }} reaction slots</p></div><a href="{% url 'aa_industry_planner:configuration' %}#production-slots">Configure slots</a></div>
-  {% if timing.duration != None %}<p class="h5">{% if timing.duration %}Estimated remaining: {{ timing.duration|duration }}{% else %}No production time remaining{% endif %}</p><p>Estimated finish: {{ timing.finish_at|date:'d M Y H:i T' }}</p>{% else %}<p class="text-warning">A full finish estimate is unavailable. Check slot settings and the timing note on each step.</p>{% endif %}
-  {% if not capacity.fresh %}<p class="text-warning">Job imports are missing or stale. Estimates use the latest known jobs; refresh sources in Configuration.</p>{% endif %}
-  <p class="form-text mb-0">Slots are shared across branches of the same activity. Each batch needs a free slot and available inputs. Reaction batches also need a free formula at their structure. Active jobs reserve slots and paused jobs have no forecast release time. The estimate assumes manufacturing blueprints and buy/import inputs are available, delivery and hauling are immediate, and only this plan’s unstarted batches use slots.</p>
+  <div class="aip-section-heading">
+    <h2 class="h5">Production timing</h2>
+    {% if progress %}<a href="{% url 'aa_industry_planner:configuration' %}#production-slots">Configure slots</a>{% endif %}
+  </div>
+  {% if progress %}
+    <div class="mb-3">
+      <p class="mb-1"><strong>{{ progress.completed }}% complete</strong>{% if progress.ongoing %} · {{ progress.ongoing }}% in jobs{% endif %}</p>
+      <div class="progress" role="progressbar" aria-label="Production progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress.completed }}" aria-valuetext="{{ progress.completed }}% complete{% if progress.ongoing %}, {{ progress.ongoing }}% in jobs{% endif %}">
+        <div class="progress-bar bg-success" style="width: {{ progress.completed }}%"></div>
+        {% if progress.ongoing %}<div class="progress-bar aip-ongoing-bar" style="width: {{ progress.ongoing }}%"></div>{% endif %}
+      </div>
+    </div>
+    {% if timing.duration %}
+      <p class="mb-1"><strong>{{ timing.duration|duration }} remaining</strong> · Estimated finish {{ timing.finish_at|date:'d M Y H:i:s T' }}</p>
+    {% elif timing.duration == 0 %}
+      <p class="mb-1"><strong>No production time remaining</strong></p>
+    {% elif timing.too_large %}
+      <p class="text-warning mb-1">Over 50,000 jobs remain. Increase batch sizes and refresh the plan for a finish estimate.</p>
+    {% else %}
+      <p class="text-warning mb-1">Finish estimate unavailable. Check the <a href="#production-sequence">production steps</a> for blockers.</p>
+    {% endif %}
+    {% if jobs_to_deliver %}<p class="mb-1">{{ jobs_to_deliver|quantity }} job{{ jobs_to_deliver|pluralize }} to deliver</p>{% endif %}
+    {% if timing.duration != 0 %}
+      <p class="mb-1 text-body-secondary">Slots · {{ timing.slots.manufacturing }} manufacturing · {{ timing.slots.reaction }} reaction</p>
+      {% if timing.peak_new_jobs.manufacturing or timing.peak_new_jobs.reaction %}
+        <p class="mb-1 text-body-secondary">Peak new jobs at once · {{ timing.peak_new_jobs.manufacturing }} manufacturing · {{ timing.peak_new_jobs.reaction }} reaction</p>
+      {% endif %}
+    {% endif %}
+    {% if not capacity.fresh and progress.completed < 100 %}
+      <p class="mb-1 form-text">{% if capacity.sources %}Job data may be out of date. <a href="{% url 'aa_industry_planner:configuration' %}#esi-sources">Refresh job sources</a>.{% else %}<a href="{% url 'aa_industry_planner:configuration' %}#esi-sources">Connect a job source</a> to track progress and occupied slots.{% endif %}</p>
+    {% endif %}
+    {% if timing.duration != 0 %}<details class="aip-details"><summary>How timing is estimated</summary><p class="form-text mb-0">The forecast uses saved batches and current slots. Reactions need a formula per parallel job. It assumes manufacturing blueprints are available and purchases, hauling and delivery are immediate. Progress is weighted by planned job time.</p></details>{% endif %}
+  {% else %}
+    <p class="mb-0">No production jobs planned.</p>
+  {% endif %}
 </section>

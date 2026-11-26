@@ -160,4 +160,4 @@ def test_saved_sell_only_quotes_and_unknown_fees_keep_incomplete_profitability_u
     assert costs["rows"]["Total production cost"] == [Estimate(None, 4), Estimate(40, 3)]
     assert costs["steps"]["sell"]["1"] == {"output": 900, "cost": None, "ratio": None}
     assert b"Known subtotal" in page.content
-    assert b"Jita sell Unavailable" in page.content
+    assert b"Jita sell Unavailable" not in page.content

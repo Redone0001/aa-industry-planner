@@ -28,6 +28,7 @@ from aa_industry_planner.services.notifications import remind_overdue_jobs
 from aa_industry_planner.services.planning import create_plan
 from aa_industry_planner.tasks import evaluate_all_watches
 
+from .conftest import add_recipe
 from .test_services import make_job
 
 pytestmark = pytest.mark.django_db
@@ -314,26 +315,76 @@ def test_character_management_lives_in_configuration_and_inventory_keeps_counts(
 
 
 def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_materials(
-    user, client, recipes, reaction_asset
+    user, client, types, assigned_facility
 ):
-    reaction_asset.quantity = 2
-    reaction_asset.save(update_fields=["quantity"])
-    preferences = UserPreferences.objects.create(user=user, manufacturing_slots=1, reaction_slots=2)
-    plan = create_plan(user, 1, 1, use_inventory=False)
+    add_recipe(types, 1, {2: 1, 3: 1}, seconds=70)
+    add_recipe(types, 2, {5: 1}, seconds=20)
+    add_recipe(types, 3, {5: 1}, seconds=21)
+    UserPreferences.objects.create(user=user, manufacturing_slots=1, reaction_slots=2)
+    plan = create_plan(user, 1, 1, use_inventory=False, default_te=0)
     snapshot = plan.snapshot.copy()
     client.force_login(user)
     url = reverse("aa_industry_planner:plan", args=[plan.pk])
     first = client.get(url)
     assert first.status_code == 200
     assert b"Production timing" in first.content and b"Estimated step finish" in first.content
-    assert b"Reaction batches also need a free formula at their structure" in first.content
-    first_duration = first.context["timing"]["duration"]
-    preferences.manufacturing_slots = 2
-    preferences.save()
+    assert first.context["timing"]["duration"] == 111
+    assert b"1m 51s remaining" in first.content
+    assert first.context["timing"]["peak_new_jobs"]["manufacturing"] == 1
+    response = client.post(
+        reverse("aa_industry_planner:configuration"),
+        dict(
+            form="operations", manufacturing_slots=2, reaction_slots=2, sync_error_grace_minutes=30
+        ),
+    )
+    assert response.status_code == 302
     second = client.get(url)
-    assert second.context["timing"]["duration"] < first_duration
+    assert second.context["timing"]["duration"] == 91
+    assert b"1m 31s remaining" in second.content
+    assert second.context["timing"]["peak_new_jobs"]["manufacturing"] == 2
     plan.refresh_from_db()
     assert plan.snapshot == snapshot
+
+
+def test_reaction_slots_change_eta_only_when_enough_formulas_are_available(
+    user, client, recipes, reaction_asset
+):
+    UserPreferences.objects.create(user=user, reaction_slots=1)
+    plan = create_plan(user, 4, 10, use_inventory=False)
+    client.force_login(user)
+    url = reverse("aa_industry_planner:plan", args=[plan.pk])
+    configuration = reverse("aa_industry_planner:configuration")
+    first = client.get(url)
+    assert first.context["timing"]["duration"] == 7200
+    response = client.post(
+        configuration,
+        dict(
+            form="operations", manufacturing_slots=0, reaction_slots=2, sync_error_grace_minutes=30
+        ),
+    )
+    assert response.status_code == 302
+    limited = client.get(url)
+    assert limited.context["timing"]["slots"]["reaction"] == 2
+    assert limited.context["timing"]["duration"] == 7200
+    assert limited.context["timing"]["peak_new_jobs"]["reaction"] == 1
+    assert b"Parallel reaction jobs limited to 1 by formula supply" in limited.content
+
+    reaction_asset.quantity = 2
+    reaction_asset.save(update_fields=["quantity"])
+    parallel = client.get(url)
+    assert parallel.context["timing"]["duration"] == 3600
+    assert parallel.context["timing"]["peak_new_jobs"]["reaction"] == 2
+
+    response = client.post(
+        configuration,
+        dict(
+            form="operations", manufacturing_slots=0, reaction_slots=1, sync_error_grace_minutes=30
+        ),
+    )
+    assert response.status_code == 302
+    serial = client.get(url)
+    assert serial.context["timing"]["duration"] == 7200
+    assert serial.context["timing"]["peak_new_jobs"]["reaction"] == 1
 
 
 def test_saved_plan_forecast_starts_a_branch_before_the_shared_reaction_step_finishes(

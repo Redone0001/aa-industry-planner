@@ -197,6 +197,8 @@ def remaining_work(steps, root_id=None, *, target_demand=None, include_external=
 
 def schedule_batches(work, consumers, free_slots, available, arrivals, formula_pools):
     ready = {activity: [] for activity in ACTIVITIES}
+    new_job_ends = {activity: [] for activity in ACTIVITIES}
+    peak_new_jobs = dict.fromkeys(ACTIVITIES, 0)
     waiting_for_formula = []
     queued = set()
     elapsed = 0
@@ -273,6 +275,11 @@ def schedule_batches(work, consumers, free_slots, available, arrivals, formula_p
         )
         end = elapsed + seconds
         heapreplace(free_slots[activity], end)
+        ends = new_job_ends[activity]
+        while ends and ends[0] <= elapsed:
+            heappop(ends)
+        heappush(ends, end)
+        peak_new_jobs[activity] = max(peak_new_jobs[activity], len(ends))
         if pool:
             heapreplace(pool, end)
         if consumers[tid]:
@@ -281,6 +288,7 @@ def schedule_batches(work, consumers, free_slots, available, arrivals, formula_p
             row.start = elapsed
         row.end = max(row.end, end)
         enqueue(tid)
+    return peak_new_jobs
 
 
 def estimate_schedule(
@@ -343,6 +351,8 @@ def estimate_schedule(
             row.end = inf
 
         reason = ""
+        jobs = sum(row.batches.values())
+        formula_limit = None
         if not isfinite(row.end):
             reason = "A linked job is paused or awaits an ESI status update."
         if row.batches and not slots[step.activity]:
@@ -359,7 +369,9 @@ def estimate_schedule(
                     reason = "No reaction formula found at the assigned structure."
                 elif not isfinite(pool[0]):
                     reason = "All reaction formulas are in jobs without a known release time."
-        jobs = sum(row.batches.values())
+            usable_formulas = sum(isfinite(release) for release in pool)
+            if 0 < usable_formulas < min(jobs, slots["reaction"]):
+                formula_limit = usable_formulas
         remaining_jobs += jobs
         step.timing = dict(
             start_at=None,
@@ -369,6 +381,7 @@ def estimate_schedule(
             remaining_jobs=jobs,
             reason=reason,
             not_needed=row.needed == 0,
+            formula_limit=formula_limit,
         )
     if remaining_jobs > 50000:
         for row in work.values():
@@ -377,7 +390,9 @@ def estimate_schedule(
             )
         return dict(duration=None, finish_at=None, slots=slots, too_large=True)
 
-    schedule_batches(work, consumers, free_slots, available, arrivals, formula_pools)
+    peak_new_jobs = schedule_batches(
+        work, consumers, free_slots, available, arrivals, formula_pools
+    )
     for row in work.values():
         timing = row.step.timing
         if row.start is not None:
@@ -400,5 +415,6 @@ def estimate_schedule(
         duration=duration,
         finish_at=now + timedelta(seconds=duration) if duration is not None else None,
         slots=slots,
+        peak_new_jobs=peak_new_jobs,
         too_large=False,
     )

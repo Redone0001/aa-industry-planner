@@ -77,8 +77,12 @@ def duration(value):
         return f"{seconds}s"
     days, seconds = divmod(seconds, 86400)
     hours, seconds = divmod(seconds, 3600)
-    minutes = seconds // 60
-    return (f"{days}d " if days else "") + f"{hours}h {minutes}m"
+    minutes, seconds = divmod(seconds, 60)
+    return " ".join(
+        f"{amount}{unit}"
+        for amount, unit in [(days, "d"), (hours, "h"), (minutes, "m"), (seconds, "s")]
+        if amount
+    )
 
 
 @register.filter

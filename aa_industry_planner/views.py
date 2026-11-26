@@ -84,7 +84,12 @@ from .services.locations import (
 )
 from .services.planning import create_plan_for_targets
 from .services.planning import refresh_plan as refresh_production_plan
-from .services.presentation import fee_presentation, plan_views, visible_stock_details
+from .services.presentation import (
+    fee_presentation,
+    plan_progress,
+    plan_views,
+    visible_stock_details,
+)
 from .services.production_queue import production_queue as build_production_queue
 from .services.readiness import annotate_steps, multibuy_line, multibuy_text
 from .services.scheduling import estimate_schedule, target_production
@@ -409,6 +414,8 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         "plan",
         plan=production,
         steps=steps,
+        progress=plan_progress(steps),
+        jobs_to_deliver=sum(a.quantity > 0 and a.job.status == "ready" for a in allocations),
         timing=timing,
         cost=cost,
         capacity=capacity,

@@ -2,32 +2,37 @@
 <details class="aip-step {% if step.checked %}is-reviewed{% endif %}" data-step-collapse data-progress="{{ step.progress }}" data-state="{{ step.state }}" data-shared="{{ step.shared|yesno:'true,false' }}" data-review-item="{{ step.item_type_id }}" id="step-{{ step.position }}">
   <summary class="aip-step-summary">
     <span class="aip-step-number badge text-bg-secondary rounded-circle">{{ step.position }}</span>
-    <span class="aip-step-title"><strong class="aip-step-name">{{ step.item_type.name }}</strong> <span>× {{ step.output_quantity|quantity }} · {{ step.runs|quantity }} run{{ step.runs|pluralize }}</span><small>{% if step.timing.not_needed %}No additional production needed for remaining final output{% elif step.timing.finish_seconds != None %}Estimated finish in {{ step.timing.finish_seconds|duration }}{% else %}Timing: {{ step.timing.reason }}{% endif %}</small>
-      <small class="d-block">Profitability · Jita buy {{ step.profitability.buy.ratio|percentage }} · Jita sell {{ step.profitability.sell.ratio|percentage }}</small>
+    <span class="aip-step-title"><strong class="aip-step-name">{{ step.item_type.name }}</strong> <span>× {{ step.output_quantity|quantity }} · {{ step.runs|quantity }} run{{ step.runs|pluralize }}</span>
+      {% if step.timing.not_needed and step.progress < 100 %}<small>No more jobs needed for the target</small>{% elif step.timing.finish_seconds %}<small>Estimated finish in {{ step.timing.finish_seconds|duration }}</small>{% elif step.timing.finish_seconds == None and step.timing.reason %}<small>{{ step.timing.reason }}</small>{% endif %}
+      {% if step.profitability.buy.ratio or step.profitability.sell.ratio %}<small>Profitability · Jita buy {{ step.profitability.buy.ratio|percentage }} · Jita sell {{ step.profitability.sell.ratio|percentage }}</small>{% endif %}
     </span>
     <span class="aip-state-badge" data-state="{{ step.state }}">{{ step.state_label }}{% if step.needs_haul %} · haul inputs{% endif %}</span>
     {% include 'aa_industry_planner/installation_fee.html' %}
     <span class="aip-step-caret" aria-hidden="true">▸</span>
   </summary>
   <div class="aip-step-body">
-    <p>{{ step.get_activity_display }} · {{ step.details.batches|length }} planned job{{ step.details.batches|length|pluralize }} · {{ step.allocations.all|length }} linked job{{ step.allocations.all|length|pluralize }} · {{ step.details.estimated_seconds|duration }} total job time</p>
+    <p>{{ step.get_activity_display }} · {{ step.details.batches|length }} planned job{{ step.details.batches|length|pluralize }} · {{ step.details.estimated_seconds|duration }} total job time{% if step.allocations.all %} · {{ step.allocations.all|length }} linked job{{ step.allocations.all|length|pluralize }}{% endif %}</p>
     {% if step.removed_runs %}<p>{{ step.removed_runs|quantity }} run{{ step.removed_runs|pluralize }} covered by planned purchases.</p>{% endif %}
-    <p class="aip-step-schedule">{% if step.timing.running %}Linked job already running. {% endif %}{% if step.timing.start_at %}First new batch starts {{ step.timing.start_at|date:'d M H:i T' }}. {% endif %}{% if step.timing.finish_at %}Estimated step finish <strong>{{ step.timing.finish_at|date:'d M H:i T' }}</strong>. {% endif %}{{ step.timing.remaining_jobs }} remaining unstarted job{{ step.timing.remaining_jobs|pluralize }}.{% if step.timing.reason %} <span class="text-warning">{{ step.timing.reason }}</span>{% endif %}</p>
-    <p class="aip-coverage"><strong>{{ step.progress }}% completed</strong> · <strong>{{ step.ongoing_progress }}% ongoing</strong> · {{ step.completed_quantity|quantity }} completed + {{ step.ongoing_quantity|quantity }} ongoing / {{ step.output_quantity|quantity }} planned units</p>
+    {% if step.timing.remaining_jobs or step.timing.finish_seconds %}<p>
+      {% if step.timing.remaining_jobs %}{{ step.timing.remaining_jobs }} unstarted job{{ step.timing.remaining_jobs|pluralize }}.{% endif %}
+      {% if step.timing.start_at %}First new job {{ step.timing.start_at|date:'d M H:i:s T' }}.{% endif %}
+      {% if step.timing.finish_seconds %}Estimated step finish <strong>{{ step.timing.finish_at|date:'d M H:i:s T' }}</strong>.{% endif %}
+      {% if step.timing.formula_limit %}Parallel reaction jobs limited to {{ step.timing.formula_limit }} by formula supply.{% endif %}
+    </p>{% endif %}
+    <p><strong>{{ step.completed_quantity|quantity }} / {{ step.output_quantity|quantity }}</strong> complete{% if step.ongoing_quantity %} · {{ step.ongoing_quantity|quantity }} in jobs{% endif %}</p>
     <div class="aip-actions">{% include 'aa_industry_planner/checklist.html' with item_id=step.item_type_id item_name=step.item_type.name checked=step.checked %}
     {% if not plan.archived %}<form method="post" action="{% url 'aa_industry_planner:set_plan_purchase' plan.pk step.item_type_id %}">{% csrf_token %}<button class="btn btn-outline-primary btn-sm" name="action" value="buy" aria-label="I will buy {{ step.item_type.name }}">I will buy this</button></form>{% endif %}</div>
     {% if step.dependency_positions %}<div class="aip-dependencies">Uses outputs from {% for p in step.dependency_positions %}<a href="#step-{{ p }}">Step {{ p }}</a> {% endfor %}</div>{% endif %}
     <div class="aip-step-meta"><span><i class="fa-solid fa-location-dot"></i> {{ step.details.context.facility }}{% if step.details.context.system %} · {{ step.details.context.system }}{% endif %}</span><span>System index: {{ step.details.context.index|percentage }}</span></div>
     <div class="aip-step-progress progress" role="progressbar" aria-label="Step {{ step.position }} completion" aria-valuenow="{{ step.progress }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar bg-success" style="width: {{ step.progress }}%"></div><div class="progress-bar aip-ongoing-bar" style="width: {{ step.ongoing_progress }}%" aria-hidden="true"></div></div>
     {% for warning in step.details.warnings %}<small class="text-warning-emphasis">{{ warning }}</small>{% endfor %}
-    <h4 class="h6 mt-3">Profitability calculation</h4>
-    <p class="form-text mb-1">Planned output value divided by the cost of inputs and installation fees, including upstream production used by this step.</p>
+    <h4 class="h6 mt-3">Profitability</h4>
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0">
         <thead><tr><th scope="col">Value</th><th scope="col" class="number">Jita buy</th><th scope="col" class="number">Jita sell</th></tr></thead>
         <tbody>
           <tr><th scope="row">Planned output</th><td class="number">{{ step.profitability.buy.output|compact_isk }}</td><td class="number">{{ step.profitability.sell.output|compact_isk }}</td></tr>
-          <tr><th scope="row">Inputs and production fees</th><td class="number">{{ step.profitability.buy.cost|compact_isk }}</td><td class="number">{{ step.profitability.sell.cost|compact_isk }}</td></tr>
+          <tr><th scope="row">Inputs and fees incl. upstream</th><td class="number">{{ step.profitability.buy.cost|compact_isk }}</td><td class="number">{{ step.profitability.sell.cost|compact_isk }}</td></tr>
         </tbody>
       </table>
     </div>
@@ -35,7 +40,7 @@
     {% include 'aa_industry_planner/step_materials.html' %}
     <p class="mt-3">Runs per job: {{ step.details.batches|join:', ' }}</p>
     <p>{% if step.activity == "manufacturing" %}Blueprint #{{ step.blueprint_type_id }} · ME {{ step.details.context.me }} / TE {{ step.details.context.te }}{% else %}Reaction formula #{{ step.blueprint_type_id }}{% endif %}</p>
-    {% for allocation in step.allocations.all %}<div class="aip-job-link">Job #{{ allocation.job.job_id }} · {{ allocation.actual_output|quantity }} output units ({{ allocation.quantity|quantity }} credited to this plan) · {{ allocation.job.status }}{% if allocation.job.cost != None %} · Installed fee: {{ allocation.job.cost|compact_isk }}{% endif %}<form method="post" action="{% url 'aa_industry_planner:unlink_job' allocation.pk %}">{% csrf_token %}<button class="btn btn-link btn-sm">Unlink</button></form></div>{% empty %}<p class="text-body-secondary">No matching job has been linked.</p>{% endfor %}
+    {% for allocation in step.allocations.all %}<div class="aip-job-link">Job #{{ allocation.job.job_id }} · {{ allocation.actual_output|quantity }} output units ({{ allocation.quantity|quantity }} credited) · {{ allocation.job.status }}{% if allocation.job.cost != None %} · Installed fee: {{ allocation.job.cost|compact_isk }}{% endif %}<form method="post" action="{% url 'aa_industry_planner:unlink_job' allocation.pk %}">{% csrf_token %}<button class="btn btn-link btn-sm">Unlink</button></form></div>{% endfor %}
     {% if step.fee.breakdown %}<details class="aip-details"><summary>Installation fee calculation inputs</summary>
       <p>EIV uses the recipe’s base materials and CCP adjusted prices, before ME or facility material bonuses.</p>
       <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Base material</th><th>Units/run</th><th>Adjusted price (ISK)</th><th>EIV/run (ISK)</th></tr></thead><tbody>{% for material in step.fee.breakdown.materials %}<tr><td>{{ material.name }}</td><td>{{ material.quantity|quantity }}</td><td>{{ material.adjusted_price|exact_number }}</td><td>{{ material.value|exact_number }}</td></tr>{% endfor %}</tbody></table></div>

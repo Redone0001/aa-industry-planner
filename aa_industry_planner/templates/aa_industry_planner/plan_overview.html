@@ -1,26 +1,24 @@
 <section class="aip-panel card" data-plan-overview>
   <div class="aip-section-heading">
-    <div><h2 class="h5">Build overview</h2><p>Inspect the dependency graph or expand the tree. Shared inputs are counted once across the plan.</p></div>
+    <h2 class="h5">Build overview</h2>
     <div class="btn-group" role="group" aria-label="Build view">
       <button class="btn btn-outline-primary" type="button" data-plan-view="graph" aria-pressed="false" aria-controls="plan-graph-pane">Graph</button>
       <button class="btn btn-primary" type="button" data-plan-view="tree" aria-pressed="true" aria-controls="plan-tree-pane">Tree</button>
     </div>
   </div>
   <div class="aip-build-legend" aria-label="Item colours"><span data-state="stock">In stock / completed</span><span data-state="ready">Ready to craft</span><span data-state="active">Job active</span><span data-state="buy">Buy / import</span><span data-state="blocked">Missing inputs</span><span data-state="elsewhere">Stock in wrong location</span>{% if purchase_choices %}<span data-state="purchase">Planned purchase / covered inputs</span>{% endif %}<span class="aip-shared-legend">Dashed = shared input</span></div>
-  <p class="form-text">Ready means the remaining step’s inputs are in the latest imported stock at its configured production/storage locations; storage inputs may need hauling. Shared stock is counted once, inputs first. Finished outputs become available after delivery and an asset refresh. “Reviewed” is your saved reminder and does not change stock or job progress.</p>
   <div id="plan-graph-pane" data-graph-pane hidden>
     <div class="aip-graph-toolbar">
       <div class="aip-actions"><button class="btn btn-secondary btn-sm" type="button" data-graph-zoom="out" aria-label="Zoom out">−</button><output data-graph-scale aria-label="Graph zoom">100%</output><button class="btn btn-secondary btn-sm" type="button" data-graph-zoom="in" aria-label="Zoom in">＋</button><button class="btn btn-secondary btn-sm" type="button" data-graph-fit>Fit graph</button><button class="btn btn-secondary btn-sm" type="button" data-graph-reset>Readable zoom</button><button class="btn btn-outline-secondary btn-sm" type="button" data-graph-fullscreen>Fullscreen</button></div>
-      <small>{{ dependency_graph.nodes|length }} items · {{ dependency_graph.edges|length }} connections</small>
     </div>
-    <p class="form-text">Drag the background to pan. Ctrl/⌘ + scroll or the zoom buttons change scale. Select an item to see its inputs and production step. Quantities on cards are plan totals.</p>
+    <p class="form-text">Drag to pan. Ctrl/⌘ + scroll to zoom.</p>
     <div class="aip-graph-layout">
       <div class="aip-graph-viewport" data-graph-viewport tabindex="0" role="group" aria-label="Production dependency graph. Drag to pan, plus or minus to zoom, zero to fit."><div class="aip-graph-world" data-graph-world></div></div>
       <aside class="aip-graph-inspector card" data-graph-inspector aria-live="polite" hidden></aside>
     </div>
   </div>
   <div id="plan-tree-pane" data-tree-pane>
-    <div class="aip-actions mb-3"><button class="btn btn-secondary btn-sm" type="button" data-tree-top>Top level</button><button class="btn btn-secondary btn-sm" type="button" data-expand-tree>Expand all</button><small>Shared entries link to their full branch. “This branch” and “Plan total” distinguish local and combined demand.</small></div>
+    <div class="aip-actions mb-3"><button class="btn btn-secondary btn-sm" type="button" data-tree-top>Top level</button><button class="btn btn-secondary btn-sm" type="button" data-expand-tree>Expand all</button></div>
     <div class="aip-tree">
       {% include 'aa_industry_planner/tree_node.html' with branch=tree %}
       {% for target_branch in tree.additional_targets %}{% include 'aa_industry_planner/tree_node.html' with branch=target_branch %}{% endfor %}

@@ -7,7 +7,23 @@ from aa_industry_planner.models import ManualStock
 from aa_industry_planner.services.jobs import reconcile_jobs, update_progress
 from aa_industry_planner.services.planning import create_plan, refresh_plan
 from aa_industry_planner.services.readiness import annotate_steps, multibuy_text
+from tests.conftest import add_recipe
 from tests.test_services import make_job
+
+
+def test_plan_progress_weights_output_by_job_time_and_shows_deliveries(user, source, types, client):
+    add_recipe(types, 1, {2: 1}, seconds=50)
+    add_recipe(types, 2, {5: 1}, seconds=75)
+    plan = create_plan(user, 1, 2, use_inventory=False, default_te=0)
+    make_job(user, source, job_id=201, blueprint_type_id=102, product_type_id=2, status="ready")
+    make_job(user, source, job_id=202, runs=1)
+    client.force_login(user)
+    page = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
+    assert page.context["progress"] == {"completed": 60, "ongoing": 20}
+    assert page.context["jobs_to_deliver"] == 1
+    assert b'aria-valuetext="60% complete, 20% in jobs"' in page.content
+    assert b"1 job to deliver" in page.content
+    assert b"aip-note alert alert-info" not in page.content
 
 
 def test_two_oversize_jobs_automatically_cover_98_units_without_completing_them(
