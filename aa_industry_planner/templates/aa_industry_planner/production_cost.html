@@ -1,25 +1,63 @@
-{% load industry %}
 <section class="aip-panel card" id="production-cost">
   <h2 class="h5">Production cost</h2>
-  <div class="table-responsive">
-    <table class="table table-sm align-middle mb-2">
-      <thead><tr><th scope="col">Cost</th><th scope="col" class="number">Jita buy</th><th scope="col" class="number">Jita sell</th></tr></thead>
+  <div class="table-responsive d-none d-sm-block">
+    <table class="table table-sm mb-0">
+      <thead><tr><th scope="col">Cost (ISK)</th>{% for side in cost.markets %}<th scope="col" class="number">Jita {{ side }}</th>{% endfor %}</tr></thead>
       <tbody>
-        {% for name, estimates in cost.rows.items %}
         <tr>
-          <th scope="row">{{ name }}</th>
-          {% for estimate in estimates %}
-          <td {% if estimates|length == 1 %}colspan="2"{% endif %} class="number">
-            {{ estimate.value|compact_isk }}
-            {% if estimate.missing and estimate.value != None %}<small class="d-block text-warning-emphasis">Known subtotal</small>{% endif %}
-          </td>
-          {% endfor %}
+          <th scope="row" class="text-wrap">All inputs<small class="fw-normal">Includes stock on hand</small></th>
+          {% for market in cost.markets.values %}<td class="number">{% include 'aa_industry_planner/cost_estimate.html' with estimate=market.inputs only %}</td>{% endfor %}
         </tr>
-        {% endfor %}
+        <tr>
+          <th scope="row" class="text-wrap"><span aria-hidden="true">+</span> Production fees</th>
+          {% for side in cost.markets %}<td class="number">{% include 'aa_industry_planner/cost_estimate.html' with estimate=cost.fees only %}</td>{% endfor %}
+        </tr>
       </tbody>
+      <tfoot class="table-group-divider">
+        <tr class="fw-bold">
+          <th scope="row" class="text-wrap">Total production cost</th>
+          {% for market in cost.markets.values %}<td class="number">{% include 'aa_industry_planner/cost_estimate.html' with estimate=market.total only %}</td>{% endfor %}
+        </tr>
+      </tfoot>
     </table>
   </div>
-  <p class="form-text mb-1">All inputs include stock on hand.</p>
+  <div class="table-responsive d-sm-none">
+    {% for side, market in cost.markets.items %}
+    <table class="table table-sm {% if forloop.last %}mb-0{% else %}mb-2{% endif %}">
+      <caption class="caption-top text-body fw-semibold py-1">Jita {{ side }} (ISK)</caption>
+      <tbody>
+        <tr>
+          <th scope="row" class="text-wrap">All inputs<small class="fw-normal">Includes stock on hand</small></th>
+          <td class="number">{% include 'aa_industry_planner/cost_estimate.html' with estimate=market.inputs only %}</td>
+        </tr>
+        <tr>
+          <th scope="row" class="text-wrap"><span aria-hidden="true">+</span> Production fees</th>
+          <td class="number">{% include 'aa_industry_planner/cost_estimate.html' with estimate=cost.fees only %}</td>
+        </tr>
+      </tbody>
+      <tfoot class="table-group-divider">
+        <tr class="fw-bold">
+          <th scope="row" class="text-wrap">Total production cost</th>
+          <td class="number">{% include 'aa_industry_planner/cost_estimate.html' with estimate=market.total only %}</td>
+        </tr>
+      </tfoot>
+    </table>
+    {% endfor %}
+  </div>
+  <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-3 border rounded px-3 py-2 my-3">
+    <div>
+      <h3 class="h6 mb-1">Inputs still to buy</h3>
+      <small>Included in all inputs above</small>
+    </div>
+    <dl class="d-flex flex-wrap gap-3 mb-0">
+      {% for side, market in cost.markets.items %}
+      <div>
+        <dt class="small fw-normal">Jita {{ side }}</dt>
+        <dd class="mb-0 fw-semibold">{% include 'aa_industry_planner/cost_estimate.html' with estimate=market.purchases show_currency=True only %}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+  </div>
   {% if cost.fetched_at %}<p class="form-text mb-1">Jita 4-4 quotes fetched from Janice {{ cost.fetched_at|date:'d M Y H:i T' }}.</p>{% endif %}
   {% if cost.refresh_failed %}<p class="text-warning mb-1">Janice pricing could not be refreshed.{% if cost.fetched_at %} Showing the last saved quotes.{% endif %}</p>{% endif %}
   {% if cost.missing_quotes.buy or cost.missing_quotes.sell %}

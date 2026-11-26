@@ -175,12 +175,7 @@ def plan_cost(snapshot):
     priced_fees = [fee for fee in fees.values() if fee is not None]
     missing_fees = len(fees) - len(priced_fees)
     fee_total = Estimate(sum(priced_fees, ZERO) if priced_fees or not fees else None, missing_fees)
-    rows = {
-        "All inputs": [],
-        "Missing inputs to buy": [],
-        "Production fees": [fee_total],
-        "Total production cost": [],
-    }
+    markets = {}
     step_values = {}
     missing_quotes = {}
     for side in MARKET_SIDES:
@@ -188,17 +183,18 @@ def plan_cost(snapshot):
         saved = quotes.get(f"{side}_prices", quotes.get("prices", {}) if side == "sell" else {})
         prices = {tid: Decimal(price) for tid, price in saved.items()}
         inputs = _market_value(all_inputs, prices)
-        rows["All inputs"].append(inputs)
-        rows["Missing inputs to buy"].append(_market_value(purchases, prices))
         known = [value for value in (inputs.value, fee_total.value) if value is not None]
-        rows["Total production cost"].append(
-            Estimate(sum(known, ZERO) if known else None, inputs.missing + missing_fees)
+        markets[side] = dict(
+            inputs=inputs,
+            purchases=_market_value(purchases, prices),
+            total=Estimate(sum(known, ZERO) if known else None, inputs.missing + missing_fees),
         )
         step_values[side] = _step_values(nodes, step_inputs, fees, prices)
         missing_quotes[side] = len((all_inputs.keys() | step_inputs.keys()) - prices.keys())
     fetched_at = quotes.get("fetched_at")
     return dict(
-        rows=rows,
+        markets=markets,
+        fees=fee_total,
         steps=step_values,
         missing_quotes=missing_quotes,
         missing_fees=missing_fees,

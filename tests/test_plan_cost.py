@@ -41,7 +41,7 @@ def test_explicit_refresh_prices_inputs_and_outputs_and_preserves_quotes_on_fail
         refresh_url = reverse("aa_industry_planner:refresh_plan", args=[plan.pk])
         initial = client.get(detail_url)
         assert b"Refresh this plan to fetch prices" in initial.content
-        assert initial.context["cost"]["rows"]["Production fees"] == [Estimate(81)]
+        assert initial.context["cost"]["fees"] == Estimate(81)
         post.assert_not_called()
 
         post.return_value.status_code = 200
@@ -68,9 +68,28 @@ def test_explicit_refresh_prices_inputs_and_outputs_and_preserves_quotes_on_fail
         )
         assert b"test-janice-key" not in detail.content
         costs = detail.context["cost"]
-        assert costs["rows"]["All inputs"] == [Estimate(195), Estimate(Decimal("282.5"))]
-        assert costs["rows"]["Missing inputs to buy"] == [Estimate(180), Estimate(262)]
-        assert costs["rows"]["Total production cost"] == [Estimate(276), Estimate(Decimal("363.5"))]
+        assert costs["markets"] == {
+            "buy": dict(inputs=Estimate(195), purchases=Estimate(180), total=Estimate(276)),
+            "sell": dict(
+                inputs=Estimate(Decimal("282.5")),
+                purchases=Estimate(262),
+                total=Estimate(Decimal("363.5")),
+            ),
+        }
+        cost_panel = detail.content.split(b'id="production-cost"', 1)[1].split(b"</section>", 1)[0]
+        calculation, purchase_estimate = cost_panel.split(b"</table>", 1)
+        assert (
+            calculation.index(b"All inputs")
+            < calculation.index(b"Production fees")
+            < calculation.index(b"Total production cost")
+        )
+        assert b"Inputs still to buy" not in calculation
+        assert calculation.count(b">81</span>") == 2
+        assert b">282.5</span>" in calculation and b">363.5</span>" in calculation
+        assert (
+            b"Inputs still to buy" in purchase_estimate and b">262 ISK</span>" in purchase_estimate
+        )
+        assert b"Included in all inputs above" in purchase_estimate
         assert costs["steps"]["buy"]["1"] == {"output": 414, "cost": 276, "ratio": Decimal("1.5")}
         assert costs["steps"]["sell"]["1"]["ratio"] == 2
         assert b"Jita buy 150.00%" in detail.content
@@ -81,12 +100,13 @@ def test_explicit_refresh_prices_inputs_and_outputs_and_preserves_quotes_on_fail
         with django_capture_on_commit_callbacks(execute=True):
             assert client.post(purchase_url, {"action": "buy"}).status_code == 302
         bought = client.get(detail_url).context["cost"]
-        assert bought["rows"]["All inputs"] == [Estimate(530), Estimate(741)]
-        assert bought["rows"]["Missing inputs to buy"] == [
-            Estimate(515),
-            Estimate(Decimal("720.5")),
-        ]
-        assert bought["rows"]["Production fees"] == [Estimate(34)]
+        assert bought["markets"] == {
+            "buy": dict(inputs=Estimate(530), purchases=Estimate(515), total=Estimate(564)),
+            "sell": dict(
+                inputs=Estimate(741), purchases=Estimate(Decimal("720.5")), total=Estimate(775)
+            ),
+        }
+        assert bought["fees"] == Estimate(34)
         assert bought["steps"]["buy"]["1"]["cost"] == 564
         assert bought["steps"]["sell"]["1"]["cost"] == 775
         assert "2" not in bought["steps"]["sell"]
@@ -96,7 +116,7 @@ def test_explicit_refresh_prices_inputs_and_outputs_and_preserves_quotes_on_fail
         with django_capture_on_commit_callbacks(execute=True):
             assert client.post(refresh_url).status_code == 302
         failed = client.get(detail_url)
-        assert failed.context["cost"]["rows"] == bought["rows"]
+        assert failed.context["cost"]["markets"] == bought["markets"]
         assert failed.context["cost"]["fetched_at"] == costs["fetched_at"]
         assert b"Showing the last saved quotes" in failed.content
         assert post.call_count == 2
@@ -126,9 +146,10 @@ def test_shared_intermediate_cost_rolls_up_by_units_consumed_through_multiple_ti
     }
     _, snapshot = calculate_targets(user, {1: 1, 4: 1}, default_me=0)
     costs = plan_cost(dict(snapshot, market_prices=quotes))
-    assert costs["rows"]["All inputs"] == [Estimate(500), Estimate(800)]
-    assert costs["rows"]["Missing inputs to buy"] == [Estimate(200), Estimate(400)]
-    assert costs["rows"]["Total production cost"] == [Estimate(912), Estimate(1212)]
+    assert costs["markets"] == {
+        "buy": dict(inputs=Estimate(500), purchases=Estimate(200), total=Estimate(912)),
+        "sell": dict(inputs=Estimate(800), purchases=Estimate(400), total=Estimate(1212)),
+    }
     buy = costs["steps"]["buy"]
     assert buy["4"]["cost"] == 485
     assert buy["2"]["cost"] == Decimal("463.25")
@@ -139,8 +160,10 @@ def test_shared_intermediate_cost_rolls_up_by_units_consumed_through_multiple_ti
     ItemPolicy.objects.create(user=user, item_type=types[4], buy=True)
     _, snapshot = calculate_targets(user, {1: 1, 4: 1}, default_me=0)
     costs = plan_cost(dict(snapshot, market_prices=quotes))
-    assert costs["rows"]["All inputs"] == [Estimate(2100), Estimate(2800)]
-    assert costs["rows"]["Missing inputs to buy"] == [Estimate(1800), Estimate(2400)]
+    assert costs["markets"]["buy"]["inputs"] == Estimate(2100)
+    assert costs["markets"]["sell"]["inputs"] == Estimate(2800)
+    assert costs["markets"]["buy"]["purchases"] == Estimate(1800)
+    assert costs["markets"]["sell"]["purchases"] == Estimate(2400)
     assert costs["steps"]["buy"]["1"]["cost"] == 2227
     assert "4" not in costs["steps"]["buy"]
 
@@ -156,8 +179,10 @@ def test_saved_sell_only_quotes_and_unknown_fees_keep_incomplete_profitability_u
     client.force_login(user)
     page = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
     costs = page.context["cost"]
-    assert costs["rows"]["All inputs"] == [Estimate(None, 2), Estimate(40, 1)]
-    assert costs["rows"]["Total production cost"] == [Estimate(None, 4), Estimate(40, 3)]
+    assert costs["markets"]["buy"]["inputs"] == Estimate(None, 2)
+    assert costs["markets"]["sell"]["inputs"] == Estimate(40, 1)
+    assert costs["markets"]["buy"]["total"] == Estimate(None, 4)
+    assert costs["markets"]["sell"]["total"] == Estimate(40, 3)
     assert costs["steps"]["sell"]["1"] == {"output": 900, "cost": None, "ratio": None}
     assert b"Known subtotal" in page.content
     assert b"Jita sell Unavailable" not in page.content

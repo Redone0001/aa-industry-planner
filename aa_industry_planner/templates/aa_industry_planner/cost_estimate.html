@@ -1,0 +1,3 @@
+{% load industry %}
+<span class="text-nowrap">{{ estimate.value|exact_number }}{% if show_currency and estimate.value != None %} ISK{% endif %}</span>
+{% if estimate.missing and estimate.value != None %}<small class="fw-normal text-warning-emphasis">Known subtotal</small>{% endif %}

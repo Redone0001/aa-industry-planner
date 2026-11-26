@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.0"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.0"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.0"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.0" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -276,7 +276,7 @@ Manufacturing and reaction jobs each share their own slot pool across all branch
 
 Both panels remember their open or closed state in browser cookies. Use the copy button beside a blueprint or reaction formula name to paste its exact name into EVE search. Blueprint status can also identify a matching blueprint used by an imported manufacturing job or present at another configured location.
 
-**Production cost** shows Jita 4-4 buy and sell values for all inputs and for the missing inputs on the buy list. All inputs includes materials used from stock and the purchases needed for the plan. The total adds the manufacturing and reaction installation fees to all inputs. If a quote or fee estimate is missing, the panel labels any partial amount as a known subtotal. Configure `JANICE_API_KEY` in Alliance Auth’s `local.py` and use **Refresh plan** to fetch both market sides for inputs and outputs. Applying blueprint settings also refreshes quotes. Opening a plan and changing a buy choice use the saved quotes. [Janice API documentation](https://janice.e-351.com/api/rest/docs/index.html)
+**Production cost** adds the value of all inputs and the production fees in each Jita 4-4 column. **Inputs still to buy** shows the purchase portion of all inputs below the calculation. If a quote or fee estimate is missing, the panel labels any partial amount as a known subtotal. Configure `JANICE_API_KEY` in Alliance Auth’s `local.py` and use **Refresh plan** to fetch both market sides for inputs and outputs. Applying blueprint settings also refreshes quotes. Opening a plan and changing a buy choice use the saved quotes. [Janice API documentation](https://janice.e-351.com/api/rest/docs/index.html)
 
 Each production step shows **Profitability** on both market sides. For each side, divide the market value of the full planned output by the cost of its inputs and installation fees. Output worth 150 million ISK on a cost of 100 million ISK is 150%. The calculation carries forward upstream material and installation costs per unit produced, so downstream steps use the cost of their share of any shared batch. Existing stock and components marked for purchase use their market value. Missing prices or fees leave that side’s profitability unavailable.
 
