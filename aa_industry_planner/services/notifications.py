@@ -16,7 +16,7 @@ from aa_industry_planner.models import (
 )
 
 from .inventory import authorized_sources
-from .jobs import active_past_finish
+from .jobs import active_past_finish, installer_names
 
 
 def emit(user, kind, event_key, title, message):
@@ -50,6 +50,7 @@ def notify_job_finished(job):
             f"Job #{job.job_id} ({job.runs:,} runs) was scheduled to finish on {finish}. "
             "Check Industry in EVE and deliver the job when ready."
         )
+    message += f"\nInstaller: {installer_names([job.installer_id])[job.installer_id]}"
     return emit(job.user, "job_finished", job_finished_key(job), title, message)
 
 

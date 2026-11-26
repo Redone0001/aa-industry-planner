@@ -1,19 +1,112 @@
 {% extends 'aa_industry_planner/base.html' %}
+{% load static %}
 {% block industry_content %}
-{% include 'aa_industry_planner/source_summary.html' %}
-<details class="aip-panel card aip-job-sources" {% if not jobs.paginator.count %}open{% endif %}>
-  <summary>Job sources and import status</summary>
-  <p class="mt-3">Personal jobs come from each connected character; corporation jobs come from connected corporation sources. Manufacturing, reactions, copying, invention and blueprint research jobs all appear here.</p>
-  {% for source in sources %}{% if source.kind != 'manual' %}<div class="aip-source">
-    <div><strong>{{ source.name }}</strong><small>{{ source.get_kind_display }} · Jobs last synced: {{ source.last_jobs_sync|date:'d M H:i'|default:'Never synced' }} · {{ source.imported_jobs }} imported job{{ source.imported_jobs|pluralize }}</small>
-    {% include 'aa_industry_planner/source_status.html' %}
-    {% if source.connected and not source.last_jobs_sync %}<small>Waiting for the first import. Refresh queues work for the AA Celery worker.</small>{% endif %}</div>
-    {% if source.connected %}<form method="post" action="{% url 'aa_industry_planner:source_action' source.pk %}">{% csrf_token %}<input type="hidden" name="return_to" value="jobs"><button class="btn btn-secondary btn-sm" name="action" value="refresh">Refresh jobs & assets</button></form>{% endif %}
-  </div>{% endif %}{% endfor %}
-  <p class="form-text mt-3 mb-0">ESI refresh respects CCP's cache. If a connected source remains “Never synced”, check that the AA Celery worker and scheduled source-refresh task are running.</p>
+<details class="aip-panel card aip-job-sources" {% if not latest_job_sync or failed_syncs or pending_syncs %}open{% endif %}>
+  <summary>
+    <strong>Job sources and import status</strong>
+    <span class="small text-body-secondary ms-2">
+      {{ connected_characters }} character{{ connected_characters|pluralize }} connected · {{ connected_corporations }} corporation source{{ connected_corporations|pluralize }}{% if latest_job_sync %} · Last sync {{ latest_job_sync|date:'d M H:i' }}{% endif %}
+    </span>
+  </summary>
+  {% for source in job_sources %}
+    <div class="aip-source">
+      <div>
+        <strong>{{ source.name }}</strong>
+        <small>{{ source.get_kind_display }} · {{ source.imported_jobs }} imported job{{ source.imported_jobs|pluralize }} · {% if source.last_jobs_sync %}Last sync {{ source.last_jobs_sync|date:'d M H:i' }}{% else %}Never synced{% endif %}</small>
+        {% include 'aa_industry_planner/source_status.html' %}
+        {% if source.connected and not source.last_jobs_sync and not source.last_error %}<small>Waiting for the first import.</small>{% endif %}
+      </div>
+      {% if source.connected %}
+        <form method="post" action="{% url 'aa_industry_planner:source_action' source.pk %}">
+          {% csrf_token %}<input type="hidden" name="return_to" value="jobs">
+          <button class="btn btn-secondary btn-sm" name="action" value="refresh">Refresh jobs &amp; assets</button>
+        </form>
+      {% endif %}
+    </div>
+  {% empty %}
+    <p class="text-body-secondary mt-3 mb-0">AA characters are not connected automatically. Connect a character or corporation source to import its jobs.</p>
+  {% endfor %}
+  <a class="d-inline-block mt-3" href="{% url 'aa_industry_planner:configuration' %}#esi-sources">Manage characters &amp; sources</a>
 </details>
-<section class="aip-panel card"><div class="aip-section-heading"><div><h2 class="h5">All industry jobs</h2><p>ESI-reported jobs across your authorized sources, newest started first. Completion follows reported status.</p></div><form method="get" class="aip-actions"><label class="form-label" for="status">Status</label><select class="form-select" name="status" id="status"><option value="">All statuses</option>{% for value in statuses %}<option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ value|capfirst }}</option>{% endfor %}</select><button class="btn btn-primary">Filter</button></form></div>
-<div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Product / job</th><th>Source</th><th>Status</th><th class="number">Runs</th><th>Started</th><th>Finishes</th><th>Plan</th><th>Last synced</th></tr></thead><tbody>{% for job in jobs %}<tr><td><strong>{{ job.product_name }}</strong><small>#{{ job.job_id }} · {{ job.installer_name }} · {{ job.activity_label }}</small></td><td>{{ job.source.name }}</td><td><span class="badge {% if job.finished %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ job.status }}</span></td><td class="number">{{ job.runs }}</td><td>{{ job.start_date|date:'d M Y H:i' }}</td><td>{{ job.end_date|date:'d M Y H:i' }}</td><td class="aip-job-assignment">{% if job.allocation %}<a href="{% url 'aa_industry_planner:plan' job.allocation.step.plan_id %}#step-{{ job.allocation.step.position }}">#{{ job.allocation.step.plan_id }} · Step {{ job.allocation.step.position }}</a>{% else %}<span class="text-body-secondary">Unassigned</span>{% endif %}
-{% if job.match_note %}<small>{{ job.match_note }}</small>{% endif %}
-{% if job.assignment_choices or job.allocation %}<details class="aip-details"><summary>{% if job.allocation %}Change plan{% else %}Assign plan{% endif %}</summary><form method="post" action="{% url 'aa_industry_planner:assign_job' job.pk %}">{% csrf_token %}<input type="hidden" name="status" value="{{ status }}"><input type="hidden" name="page" value="{{ jobs.number }}"><label class="visually-hidden" for="job-plan-{{ job.pk }}">Plan assignment for job {{ job.job_id }}</label><select class="form-select form-select-sm" name="step" id="job-plan-{{ job.pk }}" required><option value="" disabled {% if not job.assignment_selected %}selected{% endif %}>Choose a plan…</option><option value="unassigned">Unassigned (disable auto-link)</option>{% for step in job.assignment_choices %}<option value="{{ step.pk }}" {% if step.pk == job.assignment_selected %}selected{% endif %}>#{{ step.plan_id }} · {{ step.plan }} · Step {{ step.position }} · {{ step.item_type.name }}</option>{% endfor %}</select><button class="btn btn-primary btn-sm mt-2">Save assignment</button></form></details>{% endif %}</td><td>{{ job.updated_at|date:'d M H:i' }}</td></tr>{% empty %}<tr><td colspan="8">No matching jobs. Connect the character running the job in Configuration, then check its import status. Clear the status filter to see all imported activities.</td></tr>{% endfor %}</tbody></table></div><div class="aip-pagination">{% if jobs.has_previous %}<a href="?page={{ jobs.previous_page_number }}&status={{ status|urlencode }}">← Previous</a>{% endif %}<span>Page {{ jobs.number }} / {{ jobs.paginator.num_pages }}</span>{% if jobs.has_next %}<a href="?page={{ jobs.next_page_number }}&status={{ status|urlencode }}">Next →</a>{% endif %}</div></section>
+
+{% include 'aa_industry_planner/jobs_dashboard.html' %}
+
+<section class="aip-panel card" id="all-industry-jobs" aria-labelledby="all-industry-jobs-heading">
+  <div class="aip-jobs-heading">
+    <h2 class="h5 mb-0" id="all-industry-jobs-heading">All industry jobs</h2>
+    <small>All visible jobs, newest started first</small>
+  </div>
+  <div class="{% if preview_job %}aip-jobs-with-preview{% endif %}">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead><tr><th>Product / job</th><th>Installer</th><th>Source</th><th>Status</th><th class="number">Runs</th><th>Started</th><th>Finishes</th><th>Plan</th><th>Last synced</th></tr></thead>
+        <tbody>
+          {% for job in jobs %}
+            <tr>
+              <th scope="row"><strong>{{ job.product_name }}</strong><small class="fw-normal">#{{ job.job_id|stringformat:'d' }} · {{ job.activity_label }}</small></th>
+              <td>{{ job.installer_name }}</td>
+              <td>{{ job.source.name }}<small>{{ job.source.get_kind_display }}</small></td>
+              <td>
+                <span class="badge {% if job.finished %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ job.status }}</span>
+                {% if job.status == 'ready' %}
+                  <button class="btn btn-link btn-sm d-block p-0" type="button" data-delivery-preview
+                    data-product="{{ job.product_name }}" data-installer="{{ job.installer_name }}" data-source="{{ job.source.name }}"
+                    data-job="#{{ job.job_id|stringformat:'d' }} · {{ job.runs }} run{{ job.runs|pluralize }}"
+                    aria-controls="job-notification-preview" aria-pressed="{% if job.pk == preview_job.pk %}true{% else %}false{% endif %}">Preview notice</button>
+                {% endif %}
+              </td>
+              <td class="number">{{ job.runs }}</td>
+              <td>{{ job.start_date|date:'d M Y H:i' }}</td>
+              <td>{{ job.end_date|date:'d M Y H:i' }}</td>
+              <td class="aip-job-assignment">
+                {% if job.allocation %}
+                  <a href="{% url 'aa_industry_planner:plan' job.allocation.step.plan_id %}#step-{{ job.allocation.step.position }}">#{{ job.allocation.step.plan_id }} · Step {{ job.allocation.step.position }}</a>
+                {% else %}<span class="text-body-secondary">Unassigned</span>{% endif %}
+                {% if job.match_note %}<small>{{ job.match_note }}</small>{% endif %}
+                {% if job.assignment_choices or job.allocation %}
+                  <details class="aip-details">
+                    <summary>{% if job.allocation %}Change plan{% else %}Assign plan{% endif %}</summary>
+                    <form method="post" action="{% url 'aa_industry_planner:assign_job' job.pk %}">
+                      {% csrf_token %}<input type="hidden" name="page" value="{{ jobs.number }}">
+                      <label class="visually-hidden" for="job-plan-{{ job.pk }}">Plan assignment for job {{ job.job_id }}</label>
+                      <select class="form-select form-select-sm" name="step" id="job-plan-{{ job.pk }}" required>
+                        <option value="" disabled {% if not job.assignment_selected %}selected{% endif %}>Choose a plan…</option>
+                        <option value="unassigned">Unassigned (disable auto-link)</option>
+                        {% for step in job.assignment_choices %}<option value="{{ step.pk }}" {% if step.pk == job.assignment_selected %}selected{% endif %}>#{{ step.plan_id }} · {{ step.plan }} · Step {{ step.position }} · {{ step.item_type.name }}</option>{% endfor %}
+                      </select>
+                      <button class="btn btn-primary btn-sm mt-2">Save assignment</button>
+                    </form>
+                  </details>
+                {% endif %}
+              </td>
+              <td>{{ job.updated_at|date:'d M H:i' }}</td>
+            </tr>
+          {% empty %}<tr><td colspan="9">No jobs imported from your connected sources.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      {% if jobs.has_other_pages %}
+        <div class="aip-pagination" aria-label="Job pages">
+          {% if jobs.has_previous %}<a href="?page={{ jobs.previous_page_number }}#all-industry-jobs">← Previous</a>{% endif %}
+          <span>Page {{ jobs.number }} / {{ jobs.paginator.num_pages }}</span>
+          {% if jobs.has_next %}<a href="?page={{ jobs.next_page_number }}#all-industry-jobs">Next →</a>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+    {% if preview_job %}
+      <aside class="card card-body aip-job-preview" id="job-notification-preview" aria-label="Delivery notification preview">
+        <small>Notification preview</small>
+        <h3 class="h6 mt-1">Ready to deliver</h3>
+        <div aria-live="polite" aria-atomic="true">
+          <p class="fw-semibold mb-2" data-notice-field="product">{{ preview_job.product_name }}</p>
+          <dl class="aip-job-notice-details small mb-0">
+            <dt>Installer</dt><dd data-notice-field="installer">{{ preview_job.installer_name }}</dd>
+            <dt>Source</dt><dd data-notice-field="source">{{ preview_job.source.name }}</dd>
+            <dt>Job</dt><dd data-notice-field="job">#{{ preview_job.job_id|stringformat:'d' }} · {{ preview_job.runs }} run{{ preview_job.runs|pluralize }}</dd>
+          </dl>
+        </div>
+      </aside>
+    {% endif %}
+  </div>
+</section>
 {% endblock %}
+{% block extra_javascript %}{{ block.super }}<script src="{% static 'aa_industry_planner/jobs.js' %}?v={{ industry_version }}" defer></script>{% endblock %}

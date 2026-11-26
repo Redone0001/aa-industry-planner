@@ -12,6 +12,20 @@ def active_past_finish(now):
     return Q(status="active", end_date__lte=now)
 
 
+def installer_names(ids):
+    from allianceauth.eveonline.models import EveCharacter
+    from eveuniverse.models import EveEntity
+
+    ids = set(ids)
+    names = dict(EveEntity.objects.filter(pk__in=ids).exclude(name="").values_list("pk", "name"))
+    names.update(
+        EveCharacter.objects.filter(character_id__in=ids - names.keys())
+        .exclude(character_name="")
+        .values_list("character_id", "character_name")
+    )
+    return {installer_id: names.get(installer_id, str(installer_id)) for installer_id in ids}
+
+
 def job_output(job, products=None):
     from eve_sde.models import BlueprintActivityProduct
 

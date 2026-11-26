@@ -83,9 +83,9 @@ def test_job_can_move_between_plans_without_counting_twice(user, source, recipes
     client.force_login(user)
     response = client.post(
         reverse("aa_industry_planner:assign_job", args=[job.pk]),
-        {"step": target.pk, "status": "active", "page": "2"},
+        {"step": target.pk, "page": "2"},
     )
-    assert response.status_code == 302 and response.url.endswith("?status=active&page=2")
+    assert response.status_code == 302 and response.url.endswith("?page=2#all-industry-jobs")
     job.refresh_from_db()
     old.refresh_from_db()
     target.refresh_from_db()

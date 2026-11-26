@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.8.1" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -238,6 +238,8 @@ Both imports request `include_completed=true`; ESI documents completed jobs with
 
 Under **All jobs → Job sources and import status**, each source shows its last jobs sync, imported count and errors, with a refresh control. A new source remains **Never synced** until the AA Celery worker processes the queued import. A revoked or disabled source needs reconnection. A token missing required scopes is excluded from connected-source counts and authorized data reads; the exact missing permission names appear in Inventory and job source status. No token secrets are displayed. Excluding stock from planning does not hide that source's jobs.
 
+The **All jobs** dashboard follows your Alliance Auth theme. Slot utilisation and the burndown cover manufacturing and reaction jobs installed by your AA characters, including their visible corporation jobs. The burndown drops at each running job's scheduled finish. Open the 24-hour, 7-day or last-job view and inspect both slot counts in your browser's local time. **Most-run jobs** sums runs from jobs started in the last 30 days across all authorized sources, excluding cancelled and reverted jobs.
+
 Refreshing uses django-esi's token refresh, HTTP response cache, pagination and rate-limit handling. After validity checking, the import uses the refreshed token instance so it does not retry with stale rotated credentials. The planner needs complete response bodies, so its ESI calls use `use_etag=False` while leaving `use_cache` and `store_cache` enabled. Django-ESI's conditional ETag mode raises `HTTPNotModified` for unchanged or matching cached responses; that is not an empty dataset and must not erase inventory or prevent job imports. Valid cached bodies are reused; expired bodies are fetched again without an old conditional ETag. The same policy applies to character/role checks, prices and system indices. No force refresh or cache clearing is used. See [Django-ESI's caching documentation](https://django-esi.readthedocs.io/en/latest/developer/openapi31.html). A refresh button queues work; it cannot bypass CCP's cache lifetime. The worker fetches complete asset and job datasets before replacing assets in one transaction. Optional asset values from the SDK are normalized before storage: absent/null `is_blueprint_copy` becomes `False`, and absent/null `location_flag` becomes an empty string. Explicit blueprint copies remain excluded from usable stock. Nullable job properties, including science jobs without a product ID, remain nullable. Failures before or during data storage retain the previous snapshot. Failure alerts report the stage (authorization, fetching assets/jobs, saving data, or post-import updates), exception class, HTTP status when available, and running worker version. Raw HTTP bodies, headers and token secrets are never included. A storage or service error does not automatically revoke the connection; local authorization failures do. Successful imports clear the prior error. Local authorization failures disable the source until it is reconnected. Cached corporate data is not an assertion of live access; ESI and AA membership changes become known when those systems refresh.
 
 ## Job progress and inventory semantics
@@ -248,7 +250,7 @@ Plans contain one production step per produced type, in dependency order. Jobs m
 
 Jobs reconcile after ESI imports, when creating/refreshing a plan, and when opening a plan or All jobs. The oldest compatible active plan takes priority when several plans match; jobs are never counted twice across plans. Unlinking a job disables its automatic matching until it is explicitly linked again.
 
-**All jobs** sorts by descending start time, then descending EVE job ID for ties, and displays both Started and Finishes. Each row’s **Assign plan / Change plan** control lists compatible active steps with remaining demand. **Save assignment** moves the job atomically, preserving the original link if validation fails, and recalculates both plans’ coverage (including the old step when its plan is archived). Product, blueprint/formula, activity, structure, current source authorization and capacity checks still apply. Another visible corporation installer’s job and finished history can be assigned manually. **Unassigned (disable auto-link)** removes the assignment and prevents it being immediately claimed again; assigning a plan re-enables matching. Status and page filters are retained.
+**All jobs** sorts by descending start time, then descending EVE job ID for ties, and displays both Started and Finishes. The Installer column and new completion notifications show the installer name, with the EVE character ID as a fallback until the name is available. Ready jobs can be inspected in the delivery notification preview. Each row’s **Assign plan / Change plan** control lists compatible active steps with remaining demand. **Save assignment** moves the job atomically, preserving the original link if validation fails, and recalculates both plans’ coverage (including the old step when its plan is archived). Product, blueprint/formula, activity, structure, current source authorization and capacity checks still apply. Another visible corporation installer’s job and finished history can be assigned manually. **Unassigned (disable auto-link)** removes the assignment and prevents it being immediately claimed again. Assigning a plan re-enables matching and returns to the current job page.
 
 Unassigned jobs show why they are not linked: no matching active product/recipe/activity, a structure mismatch (including actual and expected IDs), an unavailable SDE output, covered steps, disabled automatic matching, a different installer or historical finished work. Unsupported science activities remain visible without production assignments.
 

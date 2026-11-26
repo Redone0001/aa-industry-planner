@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import Http404, HttpResponseBadRequest, JsonResponse
@@ -75,7 +76,14 @@ from .services.inventory import (
     stock_at_locations,
 )
 from .services.job_assignments import annotate_assignments
-from .services.jobs import allocate_job, job_outputs, reconcile_jobs, unallocate_job
+from .services.job_dashboard import job_dashboard
+from .services.jobs import (
+    allocate_job,
+    installer_names,
+    job_outputs,
+    reconcile_jobs,
+    unallocate_job,
+)
 from .services.locations import (
     InventoryLocations,
     is_station_id,
@@ -782,41 +790,39 @@ def connect_structure_lookup(request):
 @planner_access
 def jobs(request):
     reconcile_jobs(request.user)
-    qs = (
-        IndustryJob.objects.filter(user=request.user, source__in=authorized_sources(request.user))
-        .select_related("source", "allocation__step__plan")
-        .order_by("-start_date", "-job_id")
+    visible_jobs = IndustryJob.objects.filter(
+        user=request.user, source__in=authorized_sources(request.user)
     )
-    status = request.GET.get("status", "")
-    if status:
-        qs = qs.filter(status=status)
-    from django.core.paginator import Paginator
-
+    qs = visible_jobs.select_related("source", "allocation__step__plan").order_by(
+        "-start_date", "-job_id"
+    )
     jobs_page = Paginator(qs, 100).get_page(request.GET.get("page"))
-    ids = {tid for job in jobs_page for tid in [job.product_type_id, job.blueprint_type_id] if tid}
+    page_jobs = list(jobs_page)
+    ids = {tid for job in page_jobs for tid in (job.product_type_id, job.blueprint_type_id) if tid}
     names = dict(ItemType.objects.filter(pk__in=ids).values_list("id", "name"))
-    from eveuniverse.models import EveEntity
-
-    installers = dict(
-        EveEntity.objects.filter(pk__in=[j.installer_id for j in jobs_page]).values_list(
-            "id", "name"
-        )
-    )
-    for job in jobs_page:
+    installers = installer_names(job.installer_id for job in page_jobs)
+    for job in page_jobs:
         job.product_name = (
             names.get(job.product_type_id)
             or names.get(job.blueprint_type_id)
             or str(job.product_type_id or job.blueprint_type_id)
         )
-        job.installer_name = installers.get(job.installer_id) or str(job.installer_id)
-    annotate_assignments(request.user, list(jobs_page))
+        job.installer_name = installers[job.installer_id]
+    annotate_assignments(request.user, page_jobs)
+    overview = source_overview(request.user)
+    job_sources = [source for source in overview["sources"] if source.kind != "manual"]
     return page(
         request,
         "jobs",
         jobs=jobs_page,
-        status=status,
-        statuses=["active", "paused", "ready", "delivered", "cancelled", "reverted"],
-        **source_overview(request.user),
+        operations=job_dashboard(request.user, visible_jobs, timezone.now()),
+        preview_job=next((job for job in page_jobs if job.status == "ready"), None),
+        job_sources=job_sources,
+        latest_job_sync=max(
+            (s.last_jobs_sync for s in job_sources if s.connected and s.last_jobs_sync),
+            default=None,
+        ),
+        **overview,
     )
 
 
@@ -843,10 +849,8 @@ def assign_job(request, pk):
             messages.error(request, str(exc))
     else:
         messages.error(request, "Choose a plan or select Unassigned.")
-    query = urlencode(
-        {"status": request.POST.get("status", ""), "page": request.POST.get("page", "1")}
-    )
-    return redirect(reverse("aa_industry_planner:jobs") + "?" + query)
+    query = urlencode({"page": request.POST.get("page", "1")})
+    return redirect(reverse("aa_industry_planner:jobs") + "?" + query + "#all-industry-jobs")
 
 
 @planner_access
