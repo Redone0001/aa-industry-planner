@@ -1,27 +1,33 @@
 {% load industry %}
 <section class="aip-panel card" id="production-cost">
   <h2 class="h5">Production cost</h2>
-  <dl class="row mb-2">
-    <div class="col-sm-4">
-      <dt>Inputs to buy</dt>
-      <dd>{% if cost.input_cost != None %}{{ cost.input_cost|compact_isk }}{% else %}Unavailable{% endif %}</dd>
-    </div>
-    <div class="col-sm-4">
-      <dt>Production fees</dt>
-      <dd>{% if cost.fees != None %}{{ cost.fees|compact_isk }}{% else %}Unavailable{% endif %}</dd>
-    </div>
-    <div class="col-sm-4">
-      <dt>{% if cost.missing_inputs or cost.missing_fees %}Known subtotal{% else %}Estimated total{% endif %}</dt>
-      <dd class="fw-bold">{% if cost.total != None %}{{ cost.total|compact_isk }}{% else %}Unavailable{% endif %}</dd>
-    </div>
-  </dl>
-  <p class="form-text mb-1">Inputs use Janice’s Jita 4-4 sell prices and the saved buy list. Fees cover all production jobs in the saved plan.</p>
-  {% if cost.fetched_at %}<p class="form-text mb-1">Prices fetched {{ cost.fetched_at|date:'d M Y H:i T' }}.</p>{% endif %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-2">
+      <thead><tr><th scope="col">Cost</th><th scope="col" class="number">Jita buy</th><th scope="col" class="number">Jita sell</th></tr></thead>
+      <tbody>
+        {% for name, estimates in cost.rows.items %}
+        <tr>
+          <th scope="row">{{ name }}</th>
+          {% for estimate in estimates %}
+          <td {% if estimates|length == 1 %}colspan="2"{% endif %} class="number">
+            {{ estimate.value|compact_isk }}
+            {% if estimate.missing and estimate.value != None %}<small class="d-block text-warning-emphasis">Known subtotal</small>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="form-text mb-1">All inputs include materials on hand and missing purchases. The total adds all planned production fees to that value.</p>
+  {% if cost.fetched_at %}<p class="form-text mb-1">Jita 4-4 quotes fetched from Janice {{ cost.fetched_at|date:'d M Y H:i T' }}.</p>{% endif %}
   {% if cost.refresh_failed %}<p class="text-warning mb-1">Janice pricing could not be refreshed.{% if cost.fetched_at %} Showing the last saved quotes.{% endif %}</p>{% endif %}
-  {% if cost.missing_inputs %}
-    <p class="text-warning mb-1">{{ cost.missing_inputs }} input type{{ cost.missing_inputs|pluralize }} without a quote.
+  {% if cost.missing_quotes.buy or cost.missing_quotes.sell %}
+    <p class="text-warning mb-1">
+      {% if cost.missing_quotes.buy %}{{ cost.missing_quotes.buy }} item type{{ cost.missing_quotes.buy|pluralize }} without a Jita buy quote.{% endif %}
+      {% if cost.missing_quotes.sell %}{{ cost.missing_quotes.sell }} item type{{ cost.missing_quotes.sell|pluralize }} without a Jita sell quote.{% endif %}
       {% if not cost.janice_configured %}Set JANICE_API_KEY in Alliance Auth settings to enable pricing.
-      {% elif not cost.fetched_at and not cost.refresh_failed %}Refresh this plan to fetch prices.{% endif %}
+      {% elif not cost.refresh_failed %}Refresh this plan to fetch prices.{% endif %}
     </p>
   {% endif %}
   {% if cost.missing_fees %}<p class="text-warning mb-0">{{ cost.missing_fees }} production step{{ cost.missing_fees|pluralize }} without a fee estimate. Check the installation fee details on those steps.</p>{% endif %}

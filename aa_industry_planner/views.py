@@ -386,12 +386,16 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         ]
         for s in steps
     }
+    cost = plan_cost(snapshot)
     for step in steps:
         step.dependency_positions = dependencies[step.item_type_id]
         graph_node = graph_nodes.get(step.item_type_id, {})
         step.shared = graph_node.get("shared", False)
         step.removed_runs = graph_node.get("removed_runs", 0)
         step.fee = fee_presentation(step.details)
+        step.profitability = {
+            side: values.get(str(step.item_type_id)) for side, values in cost["steps"].items()
+        }
     visible_jobs = IndustryJob.objects.filter(
         user=request.user, source__in=authorized_sources(request.user), allocation__isnull=True
     ).exclude(status__in=["cancelled", "reverted"])
@@ -403,7 +407,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         plan=production,
         steps=steps,
         timing=timing,
-        cost=plan_cost(snapshot),
+        cost=cost,
         capacity=capacity,
         tree=tree,
         dependency_graph=dependency_graph,
