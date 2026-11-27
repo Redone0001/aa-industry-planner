@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from django.urls import reverse
 
-from aa_industry_planner.models import ManualStock
+from aa_industry_planner.models import ManualStock, UserPreferences
 from aa_industry_planner.services.jobs import reconcile_jobs, update_progress
 from aa_industry_planner.services.planning import create_plan, refresh_plan
 from aa_industry_planner.services.readiness import annotate_steps, multibuy_text
@@ -11,25 +11,31 @@ from tests.conftest import add_recipe
 from tests.test_services import make_job
 
 
-def test_plan_progress_weights_output_by_job_time_and_shows_deliveries(user, source, types, client):
-    add_recipe(types, 1, {2: 1}, seconds=50)
+def test_plan_shows_finish_estimate_before_step_counts_and_keeps_deliveries(user, source, types, client):
+    add_recipe(types, 1, {2: 1, 3: 1}, seconds=500)
     add_recipe(types, 2, {5: 1}, seconds=75)
+    add_recipe(types, 3, {5: 1}, seconds=20)
+    UserPreferences.objects.create(user=user, manufacturing_slots=2)
     plan = create_plan(user, 1, 2, use_inventory=False, default_te=0)
     make_job(user, source, job_id=201, blueprint_type_id=102, product_type_id=2, status="ready")
     make_job(user, source, job_id=202, runs=1)
     client.force_login(user)
     page = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
-    assert page.context["progress"] == {"completed": 60, "ongoing": 20}
+    assert page.context["progress"] == {"total": 3, "completed": 1, "in_jobs": 1, "waiting": 1}
     assert page.context["jobs_to_deliver"] == 1
-    assert b'aria-valuetext="60% complete, 20% in jobs"' in page.content
+    assert page.content.index(b"Estimated finish") < page.content.index(
+        b"1 of 3 production steps complete"
+    )
+    assert b'aria-valuemax="3" aria-valuenow="1"' in page.content
+    assert b'aria-valuetext="1 of 3 production steps complete, 1 in jobs, 1 waiting"' in page.content
     assert b"1 job to deliver" in page.content
     assert b"aip-note alert alert-info" not in page.content
-    component_summary, final_summary = (
+    summaries = [
         block.split(b"</summary>", 1)[0]
         for block in page.content.split(b'<summary class="aip-step-summary">')[1:]
-    )
-    assert b'data-copy-name-button aria-label="Copy Component A"' in component_summary
-    assert b'data-copy-name-button aria-label="Copy Final product"' in final_summary
+    ]
+    assert any(b'data-copy-name-button aria-label="Copy Component A"' in row for row in summaries)
+    assert b'data-copy-name-button aria-label="Copy Final product"' in summaries[-1]
 
 
 def test_two_oversize_jobs_automatically_cover_98_units_without_completing_them(

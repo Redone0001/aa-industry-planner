@@ -1,19 +1,12 @@
-{% load industry %}
+{% load industry l10n %}
 <section class="aip-panel card" id="production-timing">
   <div class="aip-section-heading">
     <h2 class="h5">Production timing</h2>
-    {% if progress %}<a href="{% url 'aa_industry_planner:configuration' %}#production-slots">Configure slots</a>{% endif %}
+    {% if progress.total %}<a href="{% url 'aa_industry_planner:configuration' %}#production-slots">Configure slots</a>{% endif %}
   </div>
-  {% if progress %}
-    <div class="mb-3">
-      <p class="mb-1"><strong>{{ progress.completed }}% complete</strong>{% if progress.ongoing %} · {{ progress.ongoing }}% in jobs{% endif %}</p>
-      <div class="progress" role="progressbar" aria-label="Production progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress.completed }}" aria-valuetext="{{ progress.completed }}% complete{% if progress.ongoing %}, {{ progress.ongoing }}% in jobs{% endif %}">
-        <div class="progress-bar bg-success" style="width: {{ progress.completed }}%"></div>
-        {% if progress.ongoing %}<div class="progress-bar aip-ongoing-bar" style="width: {{ progress.ongoing }}%"></div>{% endif %}
-      </div>
-    </div>
+  {% if progress.total %}
     {% if timing.duration %}
-      <p class="mb-1"><strong>{{ timing.duration|duration }} remaining</strong> · Estimated finish {{ timing.finish_at|date:'d M Y H:i:s T' }}</p>
+      <p class="mb-1"><strong class="fs-5">{{ timing.duration|duration }} remaining</strong> · Estimated finish {{ timing.finish_at|date:'d M Y H:i:s T' }}</p>
     {% elif timing.duration == 0 %}
       <p class="mb-1"><strong>No production time remaining</strong></p>
     {% elif timing.too_large %}
@@ -21,6 +14,15 @@
     {% else %}
       <p class="text-warning mb-1">Finish estimate unavailable. Check the <a href="#production-sequence">production steps</a> for blockers.</p>
     {% endif %}
+    <div class="my-3">
+      <p class="mb-1"><strong>{{ progress.completed|quantity }} of {{ progress.total|quantity }} production steps complete</strong></p>
+      <div class="progress" role="progressbar" aria-label="Production steps" aria-valuemin="0" aria-valuemax="{{ progress.total|unlocalize }}" aria-valuenow="{{ progress.completed|unlocalize }}" aria-valuetext="{{ progress.completed|quantity }} of {{ progress.total|quantity }} production steps complete, {{ progress.in_jobs|quantity }} in jobs, {{ progress.waiting|quantity }} waiting">
+        <div class="progress-bar bg-success" style="flex-grow: {{ progress.completed|unlocalize }}"></div>
+        <div class="progress-bar aip-ongoing-bar" style="flex-grow: {{ progress.in_jobs|unlocalize }}"></div>
+        <div class="progress-bar bg-transparent" style="flex-grow: {{ progress.waiting|unlocalize }}"></div>
+      </div>
+      <p class="mt-1 mb-0 text-body-secondary">{{ progress.in_jobs|quantity }} in jobs · {{ progress.waiting|quantity }} waiting</p>
+    </div>
     {% if jobs_to_deliver %}<p class="mb-1">{{ jobs_to_deliver|quantity }} job{{ jobs_to_deliver|pluralize }} to deliver</p>{% endif %}
     {% if timing.duration != 0 %}
       <p class="mb-1 text-body-secondary">Slots · {{ timing.slots.manufacturing }} manufacturing · {{ timing.slots.reaction }} reaction</p>
@@ -28,13 +30,13 @@
         <p class="mb-1 text-body-secondary">Peak new jobs at once · {{ timing.peak_new_jobs.manufacturing }} manufacturing · {{ timing.peak_new_jobs.reaction }} reaction</p>
       {% endif %}
     {% endif %}
-    {% if not capacity.fresh and progress.completed < 100 %}
+    {% if not capacity.fresh and progress.completed < progress.total %}
       <p class="mb-1 form-text">{% if capacity.sources %}Job data may be out of date. <a href="{% url 'aa_industry_planner:configuration' %}#esi-sources">Refresh job sources</a>.{% else %}<a href="{% url 'aa_industry_planner:configuration' %}#esi-sources">Connect a job source</a> to track progress and occupied slots.{% endif %}</p>
     {% endif %}
-    {% if timing.duration != 0 or progress.completed < 100 %}
+    {% if timing.duration != 0 or progress.completed < progress.total %}
       <details class="aip-details">
         <summary>How timing is estimated</summary>
-        <p class="form-text mb-0">The forecast uses saved batches and current slots. Reactions need a formula per parallel job. It assumes manufacturing blueprints are available and purchases, hauling and delivery are immediate. Jobs still marked active at or past their scheduled finish count as ready to deliver for this estimate. Progress is weighted by planned job time.</p>
+        <p class="form-text mb-0">The forecast uses saved batches and current slots. Reactions need a formula per parallel job. It assumes manufacturing blueprints are available and purchases, hauling and delivery are immediate. Jobs still marked active at or past their scheduled finish count as ready to deliver for this estimate.</p>
       </details>
     {% endif %}
   {% else %}

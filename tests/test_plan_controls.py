@@ -106,6 +106,8 @@ def test_root_purchase_keeps_only_final_output_on_the_buy_list_and_can_be_undone
     response = client.get(reverse("aa_industry_planner:plan", args=[production.pk]))
     assert response.context["multibuy"] == "Final product 10"
     assert not response.context["steps"]
+    assert b"No production jobs planned." in response.content
+    assert b'aria-label="Production steps"' not in response.content
     assert {row["id"] for row in response.context["covered_steps"]} == {2, 3, 4}
     assert client.post(root_url, {"action": "make"}).status_code == 302
     assert production.steps.count() == 4
