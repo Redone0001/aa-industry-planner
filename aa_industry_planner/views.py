@@ -102,7 +102,7 @@ from .services.production_queue import production_queue as build_production_queu
 from .services.readiness import annotate_steps, multibuy_line, multibuy_text
 from .services.scheduling import estimate_schedule, target_production
 from .services.type_search import search_types
-from .services.watches import evaluate_watches, plan_replenishment
+from .services.watches import evaluate_watches, plan_replenishment, plannable_tasks
 
 
 def planner_access(view):
@@ -134,6 +134,7 @@ def dashboard(request):
         ReplenishmentTask.objects.filter(watch__user=request.user)
         .exclude(state="resolved")
         .select_related("watch__item_type", "plan")
+        .defer("plan__snapshot")
     )
     return page(
         request,
@@ -907,23 +908,28 @@ def watches(request):
         )
         evaluate_watches(request.user)
         return redirect("aa_industry_planner:watches")
+    tasks = (
+        ReplenishmentTask.objects.filter(watch__user=request.user)
+        .select_related("watch__item_type", "plan")
+        .defer("plan__snapshot")
+    )
     return page(
         request,
         "watches",
         form=form,
-        tasks=ReplenishmentTask.objects.filter(watch__user=request.user).select_related(
-            "watch__item_type", "plan"
-        ),
+        tasks=tasks,
+        can_plan_all=plannable_tasks(tasks).exists(),
     )
 
 
 @planner_access
 @require_POST
-def replenish(request, pk):
-    get_object_or_404(ReplenishmentTask, pk=pk, watch__user=request.user)
+def replenish(request, pk=None):
     try:
         production = plan_replenishment(request.user, pk)
         return redirect("aa_industry_planner:plan", pk=production.pk)
+    except ReplenishmentTask.DoesNotExist as exc:
+        raise Http404 from exc
     except (ValueError, PlanningError) as exc:
         messages.error(request, str(exc))
         return redirect("aa_industry_planner:watches")

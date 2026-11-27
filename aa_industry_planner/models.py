@@ -663,7 +663,13 @@ class ReplenishmentTask(models.Model):
         default="open",
         choices=[("open", "Open"), ("covered", "In production"), ("resolved", "Resolved")],
     )
-    plan = models.OneToOneField(ProductionPlan, null=True, blank=True, on_delete=models.SET_NULL)
+    plan = models.ForeignKey(
+        ProductionPlan,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="replenishment_tasks",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
 

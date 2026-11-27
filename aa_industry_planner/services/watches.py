@@ -1,4 +1,7 @@
+from collections import defaultdict
+
 from django.db import transaction
+from django.db.models import Q
 from eve_sde.models import BlueprintActivityProduct
 
 from aa_industry_planner.models import (
@@ -10,10 +13,20 @@ from aa_industry_planner.models import (
 )
 
 from .inventory import authorized_sources, inventory_totals
-from .jobs import job_output
+from .jobs import job_output, reconcile_jobs
 from .locations import InventoryLocations
 from .notifications import emit
-from .planning import create_plan
+from .planning import create_plan_for_targets
+
+
+def plannable_tasks(tasks):
+    return tasks.filter(
+        Q(plan__isnull=True) | Q(plan__archived=True),
+        watch__enabled=True,
+        state="open",
+        is_input=False,
+        quantity__gt=0,
+    )
 
 
 @transaction.atomic
@@ -23,7 +36,7 @@ def evaluate_watches(user):
     locations = InventoryLocations(user)
     stock = inventory_totals(user, locations)
     policies = {p.item_type_id: p for p in ItemPolicy.objects.filter(user=user)}
-    incoming = {}
+    incoming = defaultdict(dict)
     for job in IndustryJob.objects.filter(
         user=user, source__in=authorized_sources(user), status__in=["active", "paused", "ready"]
     ):
@@ -32,7 +45,7 @@ def evaluate_watches(user):
             or job.facility_id not in locations.item_scope(job.product_type_id).location_ids
         ):
             continue
-        incoming[job.product_type_id] = incoming.get(job.product_type_id, 0) + job_output(job)
+        incoming[job.product_type_id][job.pk] = job_output(job)
     for watch in InventoryWatch.objects.filter(user=user).select_related("item_type"):
         shortage = max(0, watch.minimum - stock.get(watch.item_type_id, 0)) if watch.enabled else 0
         policy = policies.get(watch.item_type_id)
@@ -43,8 +56,14 @@ def evaluate_watches(user):
                 blueprint_activity__activity__in=["manufacturing", "reaction"],
             ).exists()
         )
-        existing = ReplenishmentTask.objects.filter(watch=watch).select_related("plan").first()
-        covered_by_plan = 0
+        existing = (
+            ReplenishmentTask.objects.filter(watch=watch)
+            .select_related("plan")
+            .defer("plan__snapshot")
+            .first()
+        )
+        incoming_jobs = incoming[watch.item_type_id]
+        coverage = sum(incoming_jobs.values())
         if existing and existing.plan and not existing.plan.archived:
             root = existing.plan.steps.filter(item_type=watch.item_type).first()
             if (
@@ -52,13 +71,24 @@ def evaluate_watches(user):
                 and root.details.get("context", {}).get("structure_id")
                 in locations.item_scope(watch.item_type_id).location_ids
             ):
-                # Count unallocated planned output; allocated jobs are already in incoming.
-                allocated = sum(
-                    a.quantity
-                    for a in root.allocations.exclude(job__status__in=["cancelled", "reverted"])
+                allocations = list(
+                    root.allocations.exclude(job__status__in=["cancelled", "reverted"])
+                    .values_list("job_id", "quantity")
                 )
-                covered_by_plan = max(0, root.output_quantity - allocated)
-        quantity = max(0, shortage - incoming.get(watch.item_type_id, 0) - covered_by_plan)
+                allocated = sum(amount for _, amount in allocations)
+                linked_incoming = sum(
+                    amount for job_id, amount in allocations if job_id in incoming_jobs
+                )
+                unallocated = max(0, root.output_quantity - allocated)
+                # Shared output fills the plan's downstream needs before replenishing stock.
+                used_in_plan = sum(
+                    row["quantity"] - row["from_stock"]
+                    for row in root.details.get("inventory_requirements", ())
+                    if row["consumer_id"] is not None
+                )
+                still_needed = max(0, used_in_plan - (allocated - linked_incoming))
+                coverage += max(0, unallocated + linked_incoming - still_needed) - linked_incoming
+        quantity = max(0, shortage - coverage)
         state = "resolved" if not shortage else "open" if is_input or quantity else "covered"
         task, created = ReplenishmentTask.objects.update_or_create(
             watch=watch,
@@ -80,26 +110,34 @@ def evaluate_watches(user):
 
 
 @transaction.atomic
-def plan_replenishment(user, task_id):
-    UserPreferences.objects.get_or_create(user=user)
-    UserPreferences.objects.select_for_update().get(user=user)
+def plan_replenishment(user, task_id=None):
+    # Evaluation locks the user's preferences for the rest of this transaction.
     evaluate_watches(user)
-    task = (
-        ReplenishmentTask.objects.select_for_update()
-        .select_related("watch")
-        .get(pk=task_id, watch__user=user)
-    )
-    if task.is_input or task.state != "open" or not task.quantity:
-        raise ValueError("This item is an input, already covered, or no longer below target.")
-    if task.plan and not task.plan.archived:
-        raise ValueError(
-            "Archive the existing replenishment plan before creating a replacement for the remaining shortage."
+    tasks = ReplenishmentTask.objects.filter(watch__user=user)
+    if task_id is None:
+        selected = list(
+            plannable_tasks(tasks).order_by("pk").values_list("pk", "watch__item_type_id", "quantity")
         )
-    # This is the net shortage: do not subtract current finished goods a second time.
-    production = create_plan(
-        user, task.watch.item_type_id, task.quantity, "Inventory replenishment", use_inventory=False
+        if not selected:
+            raise ValueError("There are no production shortages available to plan.")
+    else:
+        task = tasks.select_related("watch", "plan").get(pk=task_id)
+        if task.is_input or task.state != "open" or not task.quantity:
+            raise ValueError("This item is an input, already covered, or no longer below target.")
+        if task.plan and not task.plan.archived:
+            raise ValueError(
+                "Archive the existing replenishment plan before creating a replacement for the remaining shortage."
+            )
+        selected = [(task.pk, task.watch.item_type_id, task.quantity)]
+    # The net shortage already accounts for existing stock and incoming jobs.
+    production = create_plan_for_targets(
+        user,
+        {type_id: quantity for _, type_id, quantity in selected},
+        "Inventory replenishment",
+        use_inventory=False,
+        match_jobs=False,
     )
-    task.plan = production
-    task.save(update_fields=["plan"])
+    tasks.filter(pk__in=[pk for pk, _, _ in selected]).update(plan=production)
+    reconcile_jobs(user)
     evaluate_watches(user)
     return production

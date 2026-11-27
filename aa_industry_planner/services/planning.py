@@ -341,6 +341,7 @@ def create_plan_for_targets(
     default_me=10,
     default_te=20,
     blueprint_overrides=None,
+    match_jobs=True,
 ):
     result, snapshot = calculate_targets(
         user,
@@ -366,9 +367,10 @@ def create_plan_for_targets(
     )
     save_blueprint_overrides(production, blueprint_overrides or {})
     write_steps(production, result, snapshot)
-    from .jobs import reconcile_jobs
+    if match_jobs:
+        from .jobs import reconcile_jobs
 
-    reconcile_jobs(user)
+        reconcile_jobs(user)
     queue_source_refresh(user)
     return production
 

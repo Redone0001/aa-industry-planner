@@ -5,6 +5,7 @@ import pytest
 from allianceauth.authentication.models import CharacterOwnership
 from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied
+from django.urls import reverse
 from django.utils import timezone
 
 from aa_industry_planner.engine import PlanningError
@@ -187,6 +188,72 @@ def test_running_jobs_cover_watch_deficit(user, source, recipes, assigned_facili
     make_job(user, source, runs=7)
     evaluate_watches(user)
     assert watch.task.quantity == 3
+
+
+def test_watch_bulk_plan_combines_net_shortages_and_keeps_per_item_planning(
+    user, other_user, source, recipes, assigned_facility, client
+):
+    stock = InventorySource.objects.create(user=user, kind="manual", name="On hand")
+    ManualStock.objects.create(
+        source=stock, item_type=recipes[1], quantity=4, facility=assigned_facility
+    )
+    final = InventoryWatch.objects.create(user=user, item_type=recipes[1], minimum=10)
+    component = InventoryWatch.objects.create(user=user, item_type=recipes[2], minimum=5)
+    existing = InventoryWatch.objects.create(user=user, item_type=recipes[3], minimum=2)
+    raw = InventoryWatch.objects.create(user=user, item_type=recipes[5], minimum=100)
+    foreign = InventoryWatch.objects.create(user=other_user, item_type=recipes[4], minimum=10)
+    already_running = make_job(user, source, blueprint_type_id=102, product_type_id=2, runs=2)
+    evaluate_watches(user)
+    evaluate_watches(other_user)
+    client.force_login(user)
+    watch_url = reverse("aa_industry_planner:watches")
+    bulk_url = reverse("aa_industry_planner:replenish_all")
+    item_url = reverse("aa_industry_planner:replenish", args=[existing.task.pk])
+    page = client.get(watch_url)
+    assert b"Plan all production shortages" in page.content
+    assert f'action="{item_url}"'.encode() in page.content
+    assert client.get(bulk_url).status_code == 405
+    assert client.post(item_url).status_code == 302
+    existing_plan = ProductionPlan.objects.get(user=user)
+
+    response = client.post(bulk_url)
+    combined = ProductionPlan.objects.exclude(pk=existing_plan.pk).get(user=user)
+    assert response.url == reverse("aa_industry_planner:plan", args=[combined.pk])
+    assert {item.pk: quantity for item, quantity in combined.targets} == {1: 6, 2: 3}
+    component_step = combined.steps.get(item_type_id=2)
+    assert component_step.output_quantity > 3
+    assert not component_step.allocations.filter(job=already_running).exists()
+    for watch in (final, component):
+        watch.task.refresh_from_db()
+        assert watch.task.plan_id == combined.pk
+        assert (watch.task.quantity, watch.task.state) == (0, "covered")
+    existing.task.refresh_from_db()
+    assert existing.task.plan_id == existing_plan.pk
+    raw.task.refresh_from_db()
+    assert raw.task.is_input and raw.task.plan_id is None
+    assert foreign.task.plan_id is None
+    page = client.get(watch_url)
+    assert page.content.count(f'href="{response.url}"'.encode()) == 2
+    assert b"Plan all production shortages" not in page.content
+    assert client.post(bulk_url).url == watch_url
+    assert ProductionPlan.objects.filter(user=user).count() == 2
+
+    component.minimum = 7
+    component.save(update_fields=["minimum"])
+    new_job = make_job(
+        user,
+        source,
+        job_id=456,
+        blueprint_type_id=102,
+        product_type_id=2,
+        runs=2,
+        start_date=combined.created_at + timezone.timedelta(seconds=1),
+    )
+    reconcile_jobs(user)
+    assert new_job.allocation.step_id == component_step.pk
+    evaluate_watches(user)
+    component.task.refresh_from_db()
+    assert (component.task.quantity, component.task.state) == (2, "open")
 
 
 def test_indices_hourly_idempotent_and_retained_90_days(facility):

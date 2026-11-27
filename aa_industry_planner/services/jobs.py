@@ -1,9 +1,15 @@
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Exists, OuterRef, Q, Sum
 
-from aa_industry_planner.models import JOB_ACTIVITIES, IndustryJob, JobAllocation, PlanStep
+from aa_industry_planner.models import (
+    JOB_ACTIVITIES,
+    IndustryJob,
+    JobAllocation,
+    PlanStep,
+    ReplenishmentTask,
+)
 
 from .inventory import authorized_sources
 
@@ -186,12 +192,20 @@ def reconcile_jobs(user):
     steps = list(
         PlanStep.objects.filter(plan__user=user, plan__archived=False)
         .select_related("plan", "service__facility")
+        .defer("plan__snapshot")
+        .annotate(
+            replenishes_stock=Exists(
+                ReplenishmentTask.objects.filter(
+                    plan_id=OuterRef("plan_id"), watch__item_type_id=OuterRef("item_type_id")
+                )
+            )
+        )
         .order_by("plan__created_at", "position")
     )
     for job in candidates:
         for step in steps:
-            # Existing running jobs may cover new plans; old finished history may not.
-            if job.start_date < step.plan.created_at and job.status in {"ready", "delivered"}:
+            # Older running jobs were already considered when sizing replenishment targets.
+            if job.start_date < step.plan.created_at and (job.finished or step.replenishes_stock):
                 continue
             if compatible(job, step):
                 try:
