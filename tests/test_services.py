@@ -275,6 +275,7 @@ def test_watch_selection_combines_only_checked_production_shortages(
         final.task.pk, component.task.pk, unselected.task.pk
     }
     assert page.content.count(b'form="replenishment-selection"') == 3
+    assert page.content.count(b'form="replenishment-selection" checked') == 3
     assert b"Plan selected" in page.content and b"Plan all production shortages" in page.content
     assert client.get(selection_url).status_code == 405
 

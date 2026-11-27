@@ -16,7 +16,7 @@
           {% if selectable_task_ids %}
             <td>
               {% if task.pk in selectable_task_ids %}
-                <input class="form-check-input" type="checkbox" name="task_ids" value="{{ task.pk|stringformat:'d' }}" form="replenishment-selection" aria-label="Select {{ task.watch.item_type.name }} for production">
+                <input class="form-check-input" type="checkbox" name="task_ids" value="{{ task.pk|stringformat:'d' }}" form="replenishment-selection" checked aria-label="Select {{ task.watch.item_type.name }} for production">
               {% endif %}
             </td>
           {% endif %}
