@@ -170,6 +170,15 @@ def plan_cost(snapshot):
     quotes = snapshot.get("market_prices", {})
     purchases = purchase_quantities(nodes)
     all_inputs, step_inputs = _production_inputs(snapshot, purchases)
+    surplus_quantities = {
+        tid: node["output"] - node["missing"]
+        for tid, node in nodes.items()
+        if node["runs"] and node["output"] > node["missing"]
+    }
+    surplus_rows = {
+        tid: dict(name=nodes[tid].get("name", tid), quantity=quantity, markets={})
+        for tid, quantity in surplus_quantities.items()
+    }
     fees = {tid: node.get("estimated_job_cost") for tid, node in nodes.items() if node["runs"]}
     fees = {tid: Decimal(fee) if fee is not None else None for tid, fee in fees.items()}
     priced_fees = [fee for fee in fees.values() if fee is not None]
@@ -178,6 +187,7 @@ def plan_cost(snapshot):
     markets = {}
     step_values = {}
     missing_quotes = {}
+    surplus_values = {}
     for side in MARKET_SIDES:
         # v0.6.0 saved only the sell side under "prices".
         saved = quotes.get(f"{side}_prices", quotes.get("prices", {}) if side == "sell" else {})
@@ -189,6 +199,9 @@ def plan_cost(snapshot):
             purchases=_market_value(purchases, prices),
             total=Estimate(sum(known, ZERO) if known else None, inputs.missing + missing_fees),
         )
+        surplus_values[side] = _market_value(surplus_quantities, prices)
+        for tid, row in surplus_rows.items():
+            row["markets"][side] = prices[tid] * row["quantity"] if tid in prices else None
         step_values[side] = _step_values(nodes, step_inputs, fees, prices)
         missing_quotes[side] = len((all_inputs.keys() | step_inputs.keys()) - prices.keys())
     fetched_at = quotes.get("fetched_at")
@@ -196,6 +209,10 @@ def plan_cost(snapshot):
         markets=markets,
         fees=fee_total,
         steps=step_values,
+        surplus=dict(
+            rows=sorted(surplus_rows.values(), key=lambda row: row["name"].casefold()),
+            markets=surplus_values,
+        ),
         missing_quotes=missing_quotes,
         missing_fees=missing_fees,
         fetched_at=parse_datetime(fetched_at) if fetched_at else None,

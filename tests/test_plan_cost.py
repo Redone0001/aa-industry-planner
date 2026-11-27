@@ -12,7 +12,11 @@ from aa_industry_planner.models import (
     SystemCostIndex,
 )
 from aa_industry_planner.services.costs import Estimate, plan_cost
-from aa_industry_planner.services.planning import calculate_targets, create_plan
+from aa_industry_planner.services.planning import (
+    calculate_targets,
+    create_plan,
+    create_plan_for_targets,
+)
 
 from .conftest import add_recipe
 
@@ -90,6 +94,7 @@ def test_explicit_refresh_prices_inputs_and_outputs_and_preserves_quotes_on_fail
             b"Inputs still to buy" in purchase_estimate and b">262 ISK</span>" in purchase_estimate
         )
         assert b"Included in all inputs above" in purchase_estimate
+        assert b"Planned surplus" not in cost_panel
         assert costs["steps"]["buy"]["1"] == {"output": 414, "cost": 276, "ratio": Decimal("1.5")}
         assert costs["steps"]["sell"]["1"]["ratio"] == 2
         assert b"Jita buy 150.00%" in detail.content
@@ -123,7 +128,7 @@ def test_explicit_refresh_prices_inputs_and_outputs_and_preserves_quotes_on_fail
 
 
 def test_shared_intermediate_cost_rolls_up_by_units_consumed_through_multiple_tiers(
-    user, types, assigned_facility
+    user, types, assigned_facility, client
 ):
     add_recipe(types, 1, {2: 1, 3: 1})
     add_recipe(types, 2, {4: 3})
@@ -144,8 +149,12 @@ def test_shared_intermediate_cost_rolls_up_by_units_consumed_through_multiple_ti
         "buy_prices": {"1": "900", "2": "250", "3": "250", "4": "300", "5": "10"},
         "sell_prices": {"1": "1200", "2": "400", "3": "450", "4": "400", "5": "20"},
     }
-    _, snapshot = calculate_targets(user, {1: 1, 4: 1}, default_me=0)
-    costs = plan_cost(dict(snapshot, market_prices=quotes))
+    plan = create_plan_for_targets(user, {1: 1, 4: 1}, default_me=0)
+    plan.snapshot["market_prices"] = quotes
+    plan.save(update_fields=["snapshot"])
+    client.force_login(user)
+    page = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
+    costs = page.context["cost"]
     assert costs["markets"] == {
         "buy": dict(inputs=Estimate(500), purchases=Estimate(200), total=Estimate(912)),
         "sell": dict(inputs=Estimate(800), purchases=Estimate(400), total=Estimate(1212)),
@@ -156,6 +165,13 @@ def test_shared_intermediate_cost_rolls_up_by_units_consumed_through_multiple_ti
     assert buy["3"]["cost"] == Decimal("299.50")
     assert buy["1"]["cost"] == Decimal("790.75")
     assert costs["steps"]["sell"]["1"]["cost"] == Decimal("1040.75")
+    assert costs["surplus"] == {
+        "rows": [dict(name="Shared material", quantity=2, markets={"buy": 600, "sell": 800})],
+        "markets": {"buy": Estimate(600), "sell": Estimate(800)},
+    }
+    surplus_panel = page.content.split(b"Planned surplus", 1)[1].split(b"</details>", 1)[0]
+    assert b"600 ISK" in surplus_panel and b"800 ISK" in surplus_panel
+    assert b'Shared material</th><td class="number">2</td>' in surplus_panel
 
     ItemPolicy.objects.create(user=user, item_type=types[4], buy=True)
     _, snapshot = calculate_targets(user, {1: 1, 4: 1}, default_me=0)
@@ -166,15 +182,16 @@ def test_shared_intermediate_cost_rolls_up_by_units_consumed_through_multiple_ti
     assert costs["markets"]["sell"]["purchases"] == Estimate(2400)
     assert costs["steps"]["buy"]["1"]["cost"] == 2227
     assert "4" not in costs["steps"]["buy"]
+    assert costs["surplus"]["rows"] == []
 
 
 def test_saved_sell_only_quotes_and_unknown_fees_keep_incomplete_profitability_unavailable(
     user, types, assigned_facility, client
 ):
-    add_recipe(types, 1, {2: 1, 5: 4})
-    add_recipe(types, 2, {3: 1})
+    add_recipe(types, 1, {2: 1, 5: 4}, quantity=2)
+    add_recipe(types, 2, {3: 1}, quantity=3)
     plan = create_plan(user, 1, 1, use_inventory=False)
-    plan.snapshot["market_prices"] = {"prices": {"1": "900", "2": "250", "5": "10"}}
+    plan.snapshot["market_prices"] = {"prices": {"1": "900", "5": "10"}}
     plan.save(update_fields=["snapshot"])
     client.force_login(user)
     page = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
@@ -183,6 +200,15 @@ def test_saved_sell_only_quotes_and_unknown_fees_keep_incomplete_profitability_u
     assert costs["markets"]["sell"]["inputs"] == Estimate(40, 1)
     assert costs["markets"]["buy"]["total"] == Estimate(None, 4)
     assert costs["markets"]["sell"]["total"] == Estimate(40, 3)
-    assert costs["steps"]["sell"]["1"] == {"output": 900, "cost": None, "ratio": None}
+    assert costs["steps"]["sell"]["1"] == {"output": 1800, "cost": None, "ratio": None}
+    assert costs["surplus"] == {
+        "rows": [
+            dict(name="Component A", quantity=2, markets={"buy": None, "sell": None}),
+            dict(name="Final product", quantity=1, markets={"buy": None, "sell": 900}),
+        ],
+        "markets": {"buy": Estimate(None, 2), "sell": Estimate(900, 1)},
+    }
+    surplus_panel = page.content.split(b"Planned surplus", 1)[1].split(b"</details>", 1)[0]
+    assert b"900 ISK" in surplus_panel and b"Known subtotal" in surplus_panel
     assert b"Known subtotal" in page.content
     assert b"Jita sell Unavailable" not in page.content

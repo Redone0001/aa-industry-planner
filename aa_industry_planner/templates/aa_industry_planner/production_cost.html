@@ -1,3 +1,4 @@
+{% load industry %}
 <section class="aip-panel card" id="production-cost">
   <h2 class="h5">Production cost</h2>
   <div class="table-responsive d-none d-sm-block">
@@ -58,6 +59,35 @@
       {% endfor %}
     </dl>
   </div>
+  {% if cost.surplus.rows %}
+    <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-3 border rounded px-3 py-2 mb-3">
+      <div>
+        <h3 class="h6 mb-1">Planned surplus</h3>
+        <small>Market value of output left over from whole runs</small>
+      </div>
+      <dl class="d-flex flex-wrap gap-3 mb-0">
+        {% for side, estimate in cost.surplus.markets.items %}
+          <div>
+            <dt class="small fw-normal">Jita {{ side }}</dt>
+            <dd class="mb-0 fw-semibold">{% include 'aa_industry_planner/cost_estimate.html' with estimate=estimate show_currency=True only %}</dd>
+          </div>
+        {% endfor %}
+      </dl>
+      <details class="aip-details w-100">
+        <summary>View quantities for {{ cost.surplus.rows|length }} item type{{ cost.surplus.rows|length|pluralize }}</summary>
+        <div class="table-responsive mt-2">
+          <table class="table table-sm mb-0">
+            <thead><tr><th scope="col">Item</th><th scope="col" class="number">Extra units</th>{% for side in cost.surplus.markets %}<th scope="col" class="number">Jita {{ side }} (ISK)</th>{% endfor %}</tr></thead>
+            <tbody>
+              {% for row in cost.surplus.rows %}
+                <tr><th scope="row">{{ row.name }}</th><td class="number">{{ row.quantity|quantity }}</td>{% for value in row.markets.values %}<td class="number text-nowrap">{{ value|exact_number }}</td>{% endfor %}</tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  {% endif %}
   {% if cost.fetched_at %}<p class="form-text mb-1">Jita 4-4 quotes fetched from Janice {{ cost.fetched_at|date:'d M Y H:i T' }}.</p>{% endif %}
   {% if cost.refresh_failed %}<p class="text-warning mb-1">Janice pricing could not be refreshed.{% if cost.fetched_at %} Showing the last saved quotes.{% endif %}</p>{% endif %}
   {% if cost.missing_quotes.buy or cost.missing_quotes.sell %}
