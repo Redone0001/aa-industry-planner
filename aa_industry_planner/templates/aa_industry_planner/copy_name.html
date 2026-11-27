@@ -1,5 +1,5 @@
 <span data-copy-name>
-  <span data-copy-name-text>{{ name }}</span>
+  <span data-copy-name-text{% if name_class %} class="{{ name_class }}"{% endif %}>{{ name }}</span>
   <button type="button" class="btn btn-sm btn-outline-secondary px-2 py-0 ms-1" data-copy-name-button aria-label="Copy {{ name }}" title="Copy name">
     <i class="fa-solid fa-copy" aria-hidden="true"></i>
   </button>

@@ -113,7 +113,8 @@
   document.querySelectorAll('[data-copy-name]').forEach(control => {
     const name = control.querySelector('[data-copy-name-text]');
     const status = control.querySelector('[data-copy-name-status]');
-    control.querySelector('[data-copy-name-button]').addEventListener("click", async () => {
+    control.querySelector('[data-copy-name-button]').addEventListener("click", async event => {
+      event.preventDefault(); // Keep a production step from toggling when its name is copied.
       try {
         await navigator.clipboard.writeText(name.textContent);
         status.textContent = "Name copied.";

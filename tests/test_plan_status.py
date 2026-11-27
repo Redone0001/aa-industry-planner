@@ -24,6 +24,12 @@ def test_plan_progress_weights_output_by_job_time_and_shows_deliveries(user, sou
     assert b'aria-valuetext="60% complete, 20% in jobs"' in page.content
     assert b"1 job to deliver" in page.content
     assert b"aip-note alert alert-info" not in page.content
+    component_summary, final_summary = (
+        block.split(b"</summary>", 1)[0]
+        for block in page.content.split(b'<summary class="aip-step-summary">')[1:]
+    )
+    assert b'data-copy-name-button aria-label="Copy Component A"' in component_summary
+    assert b'data-copy-name-button aria-label="Copy Final product"' in final_summary
 
 
 def test_two_oversize_jobs_automatically_cover_98_units_without_completing_them(

@@ -2,7 +2,9 @@
 <details class="aip-step {% if step.checked %}is-reviewed{% endif %}" data-step-collapse data-progress="{{ step.progress }}" data-state="{{ step.state }}" data-shared="{{ step.shared|yesno:'true,false' }}" data-review-item="{{ step.item_type_id }}" id="step-{{ step.position }}">
   <summary class="aip-step-summary">
     <span class="aip-step-number badge text-bg-secondary rounded-circle">{{ step.position }}</span>
-    <span class="aip-step-title"><strong class="aip-step-name">{{ step.item_type.name }}</strong> <span>× {{ step.output_quantity|quantity }} · {{ step.runs|quantity }} run{{ step.runs|pluralize }}</span>
+    <span class="aip-step-title">
+      {% include 'aa_industry_planner/copy_name.html' with name=step.item_type.name name_class='aip-step-name fw-bold' only %}
+      <span class="aip-step-runs">× {{ step.output_quantity|quantity }} · {{ step.runs|quantity }} run{{ step.runs|pluralize }}</span>
       {% if step.timing.not_needed and step.progress < 100 %}<small>No more jobs needed for the target</small>{% elif step.timing.finish_seconds %}<small>Estimated finish in {{ step.timing.finish_seconds|duration }}</small>{% elif step.timing.finish_seconds == None and step.timing.reason %}<small>{{ step.timing.reason }}</small>{% endif %}
       {% if step.profitability.buy.ratio or step.profitability.sell.ratio %}<small>Profitability · Jita buy {{ step.profitability.buy.ratio|percentage }} · Jita sell {{ step.profitability.sell.ratio|percentage }}</small>{% endif %}
     </span>

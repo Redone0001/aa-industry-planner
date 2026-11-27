@@ -122,6 +122,7 @@ test('clipboard denial exposes exactly the requested text and preserves full-lis
 test('name buttons copy exact names and select the name when clipboard access fails', async () => {
   const name = {textContent: 'Shared "A & B" Reaction Formula'};
   const button = {addEventListener(event, callback) { this[event] = callback; }};
+  const click = {defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }};
   const status = {};
   const fields = {'[data-copy-name-text]': name, '[data-copy-name-button]': button, '[data-copy-name-status]': status};
   const control = {querySelector: selector => fields[selector]};
@@ -136,13 +137,14 @@ test('name buttons copy exact names and select the name when clipboard access fa
     navigator,
     window: {getSelection: () => ({selectAllChildren: element => selected.push(element)})},
   });
-  await button.click();
+  await button.click(click);
+  assert.equal(click.defaultPrevented, true);
   assert.deepEqual(copied, ['Shared "A & B" Reaction Formula']);
   assert.equal(status.textContent, 'Name copied.');
   assert.deepEqual(selected, []);
 
   delete navigator.clipboard;
-  await button.click();
+  await button.click(click);
   assert.deepEqual(selected, [name]);
   assert.equal(status.textContent, 'Copy the selected name manually.');
 });

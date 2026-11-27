@@ -266,7 +266,7 @@
 .aip-step-summary:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: 3px; border-radius: .5rem; }
 .aip-step-summary .aip-step-number { width: 1.8rem; height: 1.8rem; font-size: .75rem; }
 .aip-step-title { font-size: .875rem; overflow-wrap: anywhere; }
-.aip-step-title > span { white-space: nowrap; color: var(--bs-secondary-color, var(--bs-body-color)); }
+.aip-step-runs { white-space: nowrap; color: var(--bs-secondary-color, var(--bs-body-color)); }
 .aip-step-caret { transition: transform .12s; }
 .aip-step[open] > .aip-step-summary .aip-step-caret { transform: rotate(90deg); }
 .aip-step > .aip-step-body { padding: .5rem 1rem 1rem; border-top: 1px solid var(--bs-border-color); }
