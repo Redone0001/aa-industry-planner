@@ -401,6 +401,49 @@ def test_saved_plan_forecast_starts_a_branch_before_the_shared_reaction_step_fin
     assert response.context["timing"]["slots"] == {"manufacturing": 20, "reaction": 1}
 
 
+def test_saved_plan_forecasts_overdue_reaction_output_slot_and_formula_until_delivery(
+    user, client, recipes, reaction_asset
+):
+    UserPreferences.objects.create(user=user, manufacturing_slots=2, reaction_slots=1)
+    plan = create_plan(user, 1, 1, use_inventory=False, default_te=0)
+    finish = timezone.now()
+    reaction_job = make_job(
+        user,
+        reaction_asset.source,
+        activity_id=11,
+        blueprint_type_id=104,
+        blueprint_item_id=reaction_asset.item_id,
+        product_type_id=4,
+        facility_id=reaction_asset.location_id,
+        runs=1,
+        start_date=finish - timedelta(hours=1),
+        end_date=finish,
+    )
+    client.force_login(user)
+    url = reverse("aa_industry_planner:plan", args=[plan.pk])
+    overdue_at = finish + timedelta(minutes=1)
+    with patch("aa_industry_planner.services.scheduling.timezone.now", return_value=overdue_at):
+        overdue = client.get(url)
+    steps = {row.item_type_id: row for row in overdue.context["steps"]}
+    duration = 3780
+    assert overdue.context["timing"]["duration"] == duration
+    assert b"Estimated finish" in overdue.content
+    assert b"count as ready to deliver for this estimate" in overdue.content
+    assert steps[4].timing["start_at"] == overdue_at
+    assert min(steps[tid].timing["start_at"] for tid in (2, 3)) == overdue_at
+    assert (steps[4].completed_quantity, steps[4].ongoing_quantity) == (0, 5)
+    assert steps[2].state == "blocked"
+
+    later = overdue_at + timedelta(minutes=1)
+    for status, delivery_count in (("ready", 1), ("delivered", 0)):
+        reaction_job.status = status
+        reaction_job.save(update_fields=["status"])
+        with patch("aa_industry_planner.services.scheduling.timezone.now", return_value=later):
+            updated = client.get(url)
+        assert updated.context["timing"]["finish_at"] == later + timedelta(seconds=duration)
+        assert updated.context["jobs_to_deliver"] == delivery_count
+
+
 def test_plan_checks_local_blueprints_and_counts_installed_formulas_once(
     user, client, recipes, reaction_asset
 ):

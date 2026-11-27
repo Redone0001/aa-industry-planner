@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.1"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.1"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.1"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.0" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.1" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -272,7 +272,7 @@ Under **Production slots, warnings & sync**, enter total **manufacturing** and *
 
 Use **Sidebar badge** in the same section to show empty slots and jobs awaiting delivery next to **Industry Planner**. Choose both activities, manufacturing only, reactions only, or off. A job counts as one delivery action when ESI reports it ready or it still reports Active past the scheduled finish. Each delivery counts once, even when the remaining jobs already fill your slot budget. For example, set the badge to reactions only and configure 20 reaction slots. With 20 or more jobs still running and none to deliver, the badge is hidden. When five finish, it shows **5**. With 15 jobs still running, delivering the five changes those five delivery actions into five empty slots to fill.
 
-Manufacturing and reaction jobs each share their own slot pool across all branches. Each saved batch starts when a slot is free and its full input quantities are available. Finished upstream batches release their output for downstream jobs while later upstream batches continue. Shared output is consumed once across branches. Imported active/paused jobs installed by your owned characters reserve capacity, including jobs outside the plan. A paused job or an active job past its reported end needs an ESI status update to forecast its slot release. Already installed jobs count toward remaining demand, including inputs they consumed when they started. The forecast uses saved stock allocations and assumes buy/import inputs and manufacturing blueprints are available now and that delivery and hauling are immediate. Forecasts over 50,000 remaining jobs require larger batches.
+Manufacturing and reaction jobs each share their own slot pool across all branches. Each saved batch starts when a slot is free and its full input quantities are available. Finished upstream batches release their output for downstream jobs while later upstream batches continue. Shared output is consumed once across branches. Imported active/paused jobs installed by your owned characters reserve capacity, including jobs outside the plan. The forecast treats jobs still marked active at or past their scheduled finish as ready to deliver at the time of the forecast. Paused jobs have an unknown release time. Already installed jobs count toward remaining demand, including inputs they consumed when they started. The forecast uses saved stock allocations and assumes buy/import inputs and manufacturing blueprints are available now and that delivery and hauling are immediate. Forecasts over 50,000 remaining jobs require larger batches.
 
 **Blueprint settings** checks for the exact BPO or BPC type at the saved manufacturing structure using included ESI assets. **Reaction formulas** shows local counts, including formulas held by imported active, paused and ready-to-deliver jobs. The planner matches installed formula item IDs to assets to avoid double-counting. A reaction batch needs a free slot and its own formula. The estimate reuses a formula after the previous batch is delivered. Refresh your existing ESI sources after upgrade to fill in the item IDs for jobs already imported.
 

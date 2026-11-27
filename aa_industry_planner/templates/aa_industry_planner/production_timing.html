@@ -31,7 +31,12 @@
     {% if not capacity.fresh and progress.completed < 100 %}
       <p class="mb-1 form-text">{% if capacity.sources %}Job data may be out of date. <a href="{% url 'aa_industry_planner:configuration' %}#esi-sources">Refresh job sources</a>.{% else %}<a href="{% url 'aa_industry_planner:configuration' %}#esi-sources">Connect a job source</a> to track progress and occupied slots.{% endif %}</p>
     {% endif %}
-    {% if timing.duration != 0 %}<details class="aip-details"><summary>How timing is estimated</summary><p class="form-text mb-0">The forecast uses saved batches and current slots. Reactions need a formula per parallel job. It assumes manufacturing blueprints are available and purchases, hauling and delivery are immediate. Progress is weighted by planned job time.</p></details>{% endif %}
+    {% if timing.duration != 0 or progress.completed < 100 %}
+      <details class="aip-details">
+        <summary>How timing is estimated</summary>
+        <p class="form-text mb-0">The forecast uses saved batches and current slots. Reactions need a formula per parallel job. It assumes manufacturing blueprints are available and purchases, hauling and delivery are immediate. Jobs still marked active at or past their scheduled finish count as ready to deliver for this estimate. Progress is weighted by planned job time.</p>
+      </details>
+    {% endif %}
   {% else %}
     <p class="mb-0">No production jobs planned.</p>
   {% endif %}

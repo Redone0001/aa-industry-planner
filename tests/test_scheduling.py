@@ -206,19 +206,19 @@ def test_partial_completed_and_ongoing_output_only_schedules_the_remainder():
     assert result["duration"] == 100  # 28 new units finish first; the existing job ends later.
 
 
-def test_paused_or_unconfirmed_jobs_do_not_invent_an_end_time():
+def test_paused_jobs_do_not_invent_an_end_time():
     now = timezone.now()
-    for blocked in [job(now, 100, status="paused"), job(now, -10)]:
-        rows = [
-            step(1, ongoing=1, linked=[blocked]),
-            step(2, "manufacturing", deps=[1]),
-            step(3, "manufacturing"),
-        ]
-        result = estimate_schedule(rows, prefs(), [blocked], now)
-        assert result["duration"] is None
-        assert rows[0].timing["finish_at"] is None
-        assert rows[1].timing["finish_at"] is None
-        assert rows[2].timing["finish_seconds"] == 10
+    paused = job(now, -10, status="paused")
+    rows = [
+        step(1, ongoing=1, linked=[paused]),
+        step(2, "manufacturing", deps=[1]),
+        step(3, "manufacturing"),
+    ]
+    result = estimate_schedule(rows, prefs(), [paused], now)
+    assert result["duration"] is None
+    assert rows[0].timing["finish_at"] is None
+    assert rows[1].timing["finish_at"] is None
+    assert rows[2].timing["finish_seconds"] == 10
 
 
 def test_missing_slots_blocks_only_new_work_and_completed_steps_need_no_capacity():

@@ -19,9 +19,10 @@ from .capacity import ACTIVITIES
 def release_after(job, now):
     if job.status in {"ready", "delivered"}:
         return 0  # The forecast explicitly assumes immediate delivery.
-    if job.status == "paused" or job.end_date <= now:
+    if job.status == "paused":
         return inf
-    return ceil((job.end_date - now).total_seconds())
+    # Active jobs can reach their scheduled finish before ESI reports them ready.
+    return max(0, ceil((job.end_date - now).total_seconds()))
 
 
 def saved_targets(snapshot):
@@ -354,7 +355,7 @@ def estimate_schedule(
         jobs = sum(row.batches.values())
         formula_limit = None
         if not isfinite(row.end):
-            reason = "A linked job is paused or awaits an ESI status update."
+            reason = "A linked job is paused or has no known finish time."
         if row.batches and not slots[step.activity]:
             reason = f"Configure {step.get_activity_display().lower()} slots."
         if row.batches and row.seconds_per_run <= 0:
