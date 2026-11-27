@@ -8,7 +8,9 @@ import pytest
 from django.apps import apps
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
+from eveuniverse.models import EveEntity
 
 from aa_industry_planner.models import (
     Notification,
@@ -16,12 +18,15 @@ from aa_industry_planner.models import (
     PlannerConfiguration,
     UserPreferences,
 )
+from aa_industry_planner.services.jobs import allocate_job, unallocate_job
 from aa_industry_planner.services.notifications import (
     discord_embed,
     emit,
+    notify_job_finished,
     remind_overdue_jobs,
     send_discord,
 )
+from aa_industry_planner.services.planning import create_plan
 from aa_industry_planner.tasks import evaluate_all_watches
 
 from .test_services import make_job
@@ -111,12 +116,38 @@ def test_reminder_honors_completion_preference_and_current_source_access(user, s
 
 
 def test_discord_embed_includes_title_color_time_and_link(user):
-    note = emit(user, "job_finished", "job:1", "Assembly complete", "Ready for delivery")
+    note = emit(user, "inventory_low", "watch:1:low", "Low inventory", "Refill assembly stock")
     embed = discord_embed(note)
-    assert embed["title"] == "Assembly complete"
-    assert embed["color"] == 0x32D6A0
+    assert embed["title"] == "Low inventory"
+    assert embed["color"] == 0xF4BC61
     assert embed["url"].endswith("/industry/notifications/")
     assert timezone.datetime.fromisoformat(embed["timestamp"])
+
+
+@pytest.mark.parametrize("status", ["active", "ready"])
+def test_job_discord_embed_links_current_plan_or_queue_and_bolds_installer(
+    user, source, recipes, status, settings
+):
+    EveEntity.objects.create(pk=source.owner_id, name="Rin_Talos", category="character")
+    plan = create_plan(user, 1, 2, use_inventory=False)
+    step = plan.steps.get(item_type_id=1)
+    job = make_job(user, source, status=status)
+    note = notify_job_finished(job)
+    queue_url = settings.SITE_URL + reverse("aa_industry_planner:production_queue")
+
+    assert note.message.endswith("\nInstaller: Rin_Talos")
+    unassigned = discord_embed(note)
+    assert unassigned["description"].endswith("\nInstaller: **Rin\\_Talos**")
+    assert unassigned["color"] == 0x32D6A0
+    assert unassigned["url"] == queue_url
+
+    allocate_job(user, job.pk, step.pk)
+    assert discord_embed(note)["url"] == settings.SITE_URL + reverse(
+        "aa_industry_planner:plan", args=[plan.pk]
+    )
+
+    unallocate_job(user, job.pk)
+    assert discord_embed(note)["url"] == queue_url
 
 
 @pytest.mark.parametrize("delivery", ["sent", "already_read", "failed"])
@@ -153,6 +184,7 @@ def test_dm_uses_multiverse_and_marks_successfully_sent_notifications_read(
     assert first.kwargs["json"] == {"recipient_id": "5678"}
     assert second.kwargs["json"]["allowed_mentions"] == {"parse": []}
     assert second.kwargs["json"]["embeds"][0]["title"] == "Done"
+    assert second.kwargs["json"]["embeds"][0]["url"].endswith("/industry/production-queue/")
     assert second.kwargs["json"]["enforce_nonce"]
     note.refresh_from_db()
     if delivery == "failed":

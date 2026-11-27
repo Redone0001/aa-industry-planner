@@ -1,3 +1,4 @@
+import re
 from datetime import UTC
 from itertools import islice
 
@@ -10,6 +11,7 @@ from django.utils import timezone
 
 from aa_industry_planner.models import (
     IndustryJob,
+    JobAllocation,
     Notification,
     NotificationPreferences,
     PlannerConfiguration,
@@ -90,11 +92,34 @@ def remind_overdue_jobs(*, user=None, now=None):
                 notify_job_finished(job)
 
 
+def _job_notification_path(notification):
+    match = re.fullmatch(r"job:([0-9]+):finished", notification.event_key)
+    if match:
+        plan_id = (
+            JobAllocation.objects.filter(
+                job__user_id=notification.user_id,
+                job__job_id=int(match[1]),
+                step__plan__user_id=notification.user_id,
+            )
+            .values_list("step__plan_id", flat=True)
+            .first()
+        )
+        if plan_id is not None:
+            return reverse("aa_industry_planner:plan", args=[plan_id])
+    return reverse("aa_industry_planner:production_queue")
+
+
 def discord_embed(notification):
     site_url = getattr(settings, "SITE_URL", "").rstrip("/")
+    description = notification.message
+    if notification.kind == "job_finished":
+        body, label, installer = description.rpartition("\nInstaller: ")
+        if label and installer:
+            installer = re.sub(r"([\\`*_~|\[\]<>])", r"\\\1", installer)
+            description = f"{body}{label}**{installer}**"
     embed = {
         "title": notification.title[:256],
-        "description": notification.message[:4096],
+        "description": description[:4096],
         "color": {
             "job_finished": 0x32D6A0,
             "inventory_low": 0xF4BC61,
@@ -106,7 +131,12 @@ def discord_embed(notification):
         "footer": {"text": "Alliance Auth • Industrial operations"},
     }
     if site_url:
-        embed["url"] = site_url + reverse("aa_industry_planner:notifications")
+        path = (
+            _job_notification_path(notification)
+            if notification.kind == "job_finished"
+            else reverse("aa_industry_planner:notifications")
+        )
+        embed["url"] = site_url + path
     return embed
 
 

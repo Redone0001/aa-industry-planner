@@ -120,7 +120,7 @@ def test_all_jobs_dashboard_scopes_slots_and_ranks_30_day_runs(
     }
     note = notify_job_finished(jobs[5])
     assert "Installer: Rin Talos" in note.message
-    assert "Installer: Rin Talos" in discord_embed(note)["description"]
+    assert "Installer: **Rin Talos**" in discord_embed(note)["description"]
 
     IndustryJob.objects.bulk_create(
         [

@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.5"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.5"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.5"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.5" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -256,7 +256,7 @@ Unassigned jobs show why they are not linked: no matching active product/recipe/
 
 `ready` and `delivered` complete an allocated step, and cancelled/reverted jobs release their allocation. Ready output enters inventory after delivery and asset import. The initial import skips confirmed historical completions.
 
-If a job still shows **Active** after its **Finishes** time, the existing completion notification setting sends a delivery reminder. The reminder asks you to check the job in EVE. Each job gets one notification, even if ESI later reports it as ready or delivered. The reminder runs after a successful import or on the existing inventory and slot checks, scheduled every 10 minutes in the example configuration.
+If a job still shows **Active** after its **Finishes** time, the existing completion notification setting sends a delivery reminder. The reminder asks you to check the job in EVE. Each job gets one notification, even if ESI later reports it as ready or delivered. The reminder runs after a successful import or on the existing inventory and slot checks, scheduled every 10 minutes in the example configuration. Discord job notifications show the installer name in bold, and their titles link to the assigned production plan or to the Production queue for unassigned jobs.
 
 Inventory is pooled across included sources only at the locations permitted for each consuming job; stock elsewhere is ignored. Moving inputs between locations is a player action. A saved plan is a calculation snapshot: it does **not** reserve inventory across separate plans, submit EVE jobs, deliver jobs or transport items.
 
