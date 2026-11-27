@@ -1,1 +1,43 @@
-<div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Item</th><th class="number">Target</th><th class="number">Shortage</th><th class="number">Additional production</th><th>Action</th></tr></thead><tbody>{% for task in tasks %}<tr><td><strong>{{ task.watch.item_type.name }}</strong><small>{{ task.get_state_display }}{% if not task.watch.enabled %} · Watch disabled{% endif %}</small></td><td class="number">{{ task.watch.minimum }}</td><td class="number">{{ task.shortage }}</td><td class="number">{% if task.is_input %}—{% else %}{{ task.quantity }}{% endif %}</td><td>{% if task.state == 'resolved' %}<span class="badge text-bg-success">Target met</span>{% elif task.is_input %}<span class="badge text-bg-warning">Buy / import</span>{% elif task.plan and not task.plan.archived %}<a href="{% url 'aa_industry_planner:plan' task.plan_id %}">Open plan →</a>{% elif task.state == 'open' %}<form method="post" action="{% url 'aa_industry_planner:replenish' task.pk %}">{% csrf_token %}<button class="btn btn-primary">Plan production →</button></form>{% else %}<span class="badge text-bg-secondary">In production</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5">No inventory alerts. Set a target to start watching an item.</td></tr>{% endfor %}</tbody></table></div>
+<div class="table-responsive">
+  <table class="table table-hover align-middle mb-0">
+    <thead>
+      <tr>
+        {% if selectable_task_ids %}<th scope="col"><span class="visually-hidden">Select</span></th>{% endif %}
+        <th scope="col">Item</th>
+        <th scope="col" class="number">Target</th>
+        <th scope="col" class="number">Shortage</th>
+        <th scope="col" class="number">Additional production</th>
+        <th scope="col">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for task in tasks %}
+        <tr>
+          {% if selectable_task_ids %}
+            <td>
+              {% if task.pk in selectable_task_ids %}
+                <input class="form-check-input" type="checkbox" name="task_ids" value="{{ task.pk|stringformat:'d' }}" form="replenishment-selection" aria-label="Select {{ task.watch.item_type.name }} for production">
+              {% endif %}
+            </td>
+          {% endif %}
+          <td><strong>{{ task.watch.item_type.name }}</strong><small>{{ task.get_state_display }}{% if not task.watch.enabled %} · Watch disabled{% endif %}</small></td>
+          <td class="number">{{ task.watch.minimum }}</td>
+          <td class="number">{{ task.shortage }}</td>
+          <td class="number">{% if task.is_input %}—{% else %}{{ task.quantity }}{% endif %}</td>
+          <td>
+            {% if task.state == 'resolved' %}<span class="badge text-bg-success">Target met</span>
+            {% elif task.is_input %}<span class="badge text-bg-warning">Buy / import</span>
+            {% elif task.plan and not task.plan.archived %}<a href="{% url 'aa_industry_planner:plan' task.plan_id %}">Open plan →</a>
+            {% elif task.state == 'open' %}
+              <form method="post" action="{% url 'aa_industry_planner:replenish' task.pk %}">
+                {% csrf_token %}<button class="btn btn-primary">Plan production →</button>
+              </form>
+            {% else %}<span class="badge text-bg-secondary">In production</span>{% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">No inventory alerts. Set a target to start watching an item.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

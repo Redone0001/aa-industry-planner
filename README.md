@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.7"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.8"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.7"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.8"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.7"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.8"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.7" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.8" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -260,7 +260,7 @@ If a job still shows **Active** after its **Finishes** time, the existing comple
 
 Inventory is pooled across included sources only at the locations permitted for each consuming job; stock elsewhere is ignored. Moving inputs between locations is a player action. A saved plan is a calculation snapshot: it does **not** reserve inventory across separate plans, submit EVE jobs, deliver jobs or transport items.
 
-Watches compare stock at the item’s configured activity locations with the minimum and subtract known active/paused/ready output at those locations. Raw-input targets use the union of configured industry/storage locations. Output from the linked replenishment plan covers demand once the plan’s dependent jobs have their inputs. **Plan all production shortages** creates one multi-item plan for open production tasks without an active linked plan. Each included row links to that shared plan. Use **Plan production** on a single row to make a separate plan. If a target grows beyond an existing linked plan, the task shows the extra requirement. Archive the old linked plan before replacing it. Inputs are highlighted for buying/importing. Assets and job endpoints may update at different times after delivery, so review a temporary shortage before acting.
+Watches compare stock at the item’s configured activity locations with the minimum and subtract known active/paused/ready output at those locations. Raw-input targets use the union of configured industry/storage locations. Output from the linked replenishment plan covers demand once the plan’s dependent jobs have their inputs. **Plan all production shortages** creates one multi-item plan for open production tasks without an active linked plan. Check specific rows and use **Plan selected** to include only those shortages. Each included row links to the shared plan. Use **Plan production** on a single row to make a separate plan. If a target grows beyond an existing linked plan, the task shows the extra requirement. Archive the old linked plan before replacing it. Inputs are highlighted for buying/importing. Assets and job endpoints may update at different times after delivery, so review a temporary shortage before acting.
 
 ## Production timing, job slots and ESI errors
 

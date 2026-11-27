@@ -110,14 +110,29 @@ def evaluate_watches(user):
 
 
 @transaction.atomic
-def plan_replenishment(user, task_id=None):
+def plan_replenishment(user, task_id=None, *, task_ids=None):
     # Evaluation locks the user's preferences for the rest of this transaction.
     evaluate_watches(user)
     tasks = ReplenishmentTask.objects.filter(watch__user=user)
     if task_id is None:
+        candidates = plannable_tasks(tasks)
+        if task_ids is not None:
+            if not task_ids:
+                raise ValueError("Select at least one production shortage.")
+            try:
+                task_ids = {int(pk) for pk in task_ids}
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Select valid production shortages from the queue.") from exc
+            if any(not 0 < pk < 2**63 for pk in task_ids):
+                raise ValueError("Select valid production shortages from the queue.")
+            candidates = candidates.filter(pk__in=task_ids)
         selected = list(
-            plannable_tasks(tasks).order_by("pk").values_list("pk", "watch__item_type_id", "quantity")
+            candidates.order_by("pk").values_list("pk", "watch__item_type_id", "quantity")
         )
+        if task_ids is not None and len(selected) != len(task_ids):
+            raise ValueError(
+                "Some selected shortages are no longer available. Review the queue and try again."
+            )
         if not selected:
             raise ValueError("There are no production shortages available to plan.")
     else:

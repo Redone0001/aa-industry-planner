@@ -1,6 +1,6 @@
 {% extends 'aa_industry_planner/base.html' %}
 {% block industry_content %}
-<div class="aip-two-col">
+<div class="aip-two-col aip-watch-layout">
   <section class="aip-panel card">
     <div class="aip-eyebrow text-body-secondary">KEEP THE HANGAR READY</div>
     <h2 class="h5">Set an inventory target</h2>
@@ -9,12 +9,17 @@
     <small>Enter an existing item again to change its target or disable its watch.</small>
   </section>
   <section class="aip-panel card">
-    <div class="aip-section-heading">
+    <div class="aip-section-heading flex-wrap">
       <h2 class="h5">Replenishment queue</h2>
-      {% if can_plan_all %}
-        <form method="post" action="{% url 'aa_industry_planner:replenish_all' %}">
-          {% csrf_token %}<button class="btn btn-primary">Plan all production shortages</button>
-        </form>
+      {% if selectable_task_ids %}
+        <div class="aip-actions">
+          <form id="replenishment-selection" method="post" action="{% url 'aa_industry_planner:replenish_selected' %}">
+            {% csrf_token %}<button class="btn btn-primary">Plan selected</button>
+          </form>
+          <form method="post" action="{% url 'aa_industry_planner:replenish_all' %}">
+            {% csrf_token %}<button class="btn btn-outline-primary">Plan all production shortages</button>
+          </form>
+        </div>
       {% endif %}
     </div>
     {% include 'aa_industry_planner/task_table.html' %}

@@ -29,6 +29,7 @@ urlpatterns = [
     path("jobs/<int:pk>/assign/", views.assign_job, name="assign_job"),
     path("watches/", views.watches, name="watches"),
     path("watches/plan/", views.replenish, name="replenish_all"),
+    path("watches/plan-selected/", views.replenish, {"selection": True}, name="replenish_selected"),
     path("watches/<int:pk>/plan/", views.replenish, name="replenish"),
     path("configuration/", views.configuration, name="configuration"),
     path("policies/<int:pk>/delete/", views.delete_policy, name="delete_policy"),

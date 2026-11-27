@@ -918,15 +918,16 @@ def watches(request):
         "watches",
         form=form,
         tasks=tasks,
-        can_plan_all=plannable_tasks(tasks).exists(),
+        selectable_task_ids=set(plannable_tasks(tasks).values_list("pk", flat=True)),
     )
 
 
 @planner_access
 @require_POST
-def replenish(request, pk=None):
+def replenish(request, pk=None, selection=False):
+    task_ids = request.POST.getlist("task_ids") if selection else None
     try:
-        production = plan_replenishment(request.user, pk)
+        production = plan_replenishment(request.user, pk, task_ids=task_ids)
         return redirect("aa_industry_planner:plan", pk=production.pk)
     except ReplenishmentTask.DoesNotExist as exc:
         raise Http404 from exc

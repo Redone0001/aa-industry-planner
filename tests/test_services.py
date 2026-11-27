@@ -256,6 +256,55 @@ def test_watch_bulk_plan_combines_net_shortages_and_keeps_per_item_planning(
     assert (component.task.quantity, component.task.state) == (2, "open")
 
 
+def test_watch_selection_combines_only_checked_production_shortages(
+    user, other_user, client, recipes, assigned_facility
+):
+    final, component, unselected, raw = [
+        InventoryWatch.objects.create(user=user, item_type=recipes[tid], minimum=quantity)
+        for tid, quantity in [(1, 3), (2, 7), (3, 9), (5, 1)]
+    ]
+    foreign = InventoryWatch.objects.create(user=other_user, item_type=recipes[1], minimum=6)
+    evaluate_watches(user)
+    evaluate_watches(other_user)
+    client.force_login(user)
+    watch_url = reverse("aa_industry_planner:watches")
+    selection_url = reverse("aa_industry_planner:replenish_selected")
+    bulk_url = reverse("aa_industry_planner:replenish_all")
+    page = client.get(watch_url)
+    assert page.context["selectable_task_ids"] == {
+        final.task.pk, component.task.pk, unselected.task.pk
+    }
+    assert page.content.count(b'form="replenishment-selection"') == 3
+    assert b"Plan selected" in page.content and b"Plan all production shortages" in page.content
+    assert client.get(selection_url).status_code == 405
+
+    for invalid in (
+        [], ["invalid"], [2**63], [final.task.pk, raw.task.pk], [final.task.pk, foreign.task.pk]
+    ):
+        assert client.post(selection_url, {"task_ids": invalid}).url == watch_url
+        assert not ProductionPlan.objects.exists()
+
+    response = client.post(selection_url, {"task_ids": [final.task.pk, component.task.pk]})
+    combined = ProductionPlan.objects.get(user=user)
+    assert response.url == reverse("aa_industry_planner:plan", args=[combined.pk])
+    assert {item.pk: quantity for item, quantity in combined.targets} == {1: 3, 2: 7}
+    assert set(combined.replenishment_tasks.values_list("pk", flat=True)) == {
+        final.task.pk, component.task.pk
+    }
+    unselected.task.refresh_from_db()
+    assert unselected.task.plan_id is None
+    assert unselected.task.quantity == 9
+
+    stale = client.post(selection_url, {"task_ids": [final.task.pk, unselected.task.pk]})
+    assert stale.url == watch_url
+    assert ProductionPlan.objects.count() == 1
+    page = client.get(watch_url)
+    item_url = reverse("aa_industry_planner:replenish", args=[unselected.task.pk])
+    assert page.context["selectable_task_ids"] == {unselected.task.pk}
+    assert f'action="{item_url}"'.encode() in page.content
+    assert f'action="{bulk_url}"'.encode() in page.content
+
+
 def test_indices_hourly_idempotent_and_retained_90_days(facility):
     now = timezone.now().replace(minute=30)
     SystemCostIndex.objects.create(
