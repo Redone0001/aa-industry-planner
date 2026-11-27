@@ -1,6 +1,8 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as Obj
 
+import pytest
+from django.template.loader import render_to_string
 from django.utils import timezone
 
 from aa_industry_planner.services.blueprints import FormulaSupply
@@ -284,3 +286,29 @@ def test_ready_job_slots_can_be_reused_under_the_immediate_delivery_assumption()
     now = timezone.now()
     ready = job(now, -100, status="ready")
     assert estimate_schedule([step(1)], prefs(), [ready], now)["duration"] == 10
+
+
+@pytest.mark.parametrize(
+    ("seconds", "remaining", "finish"),
+    [
+        (1, "1m", "27 Nov 2026 17:43 IST"),
+        (60, "1m", "27 Nov 2026 17:44 IST"),
+        (86_399, "1d", "28 Nov 2026 17:43 IST"),
+        (86_400, "1d", "28 Nov 2026 17:43 IST"),
+        (86_401, "1d 1h", "28 Nov 2026 18:00 IST"),
+        (864_000, "10d", "07 Dec 2026 18:00 IST"),
+        (864_001, "11d", "07 Dec 2026"),
+    ],
+)
+def test_production_timing_rounds_estimate_for_display(seconds, remaining, finish):
+    now = datetime(2026, 11, 27, 12, 12, 34, tzinfo=UTC)
+    with timezone.override("Asia/Kolkata"):
+        page = render_to_string(
+            "aa_industry_planner/production_timing.html",
+            {
+                "progress": {"total": 1, "completed": 0, "in_jobs": 0, "waiting": 1},
+                "timing": {"duration": seconds, "finish_at": now + timedelta(seconds=seconds)},
+                "capacity": {"fresh": True},
+            },
+        )
+    assert f"About {remaining} remaining</strong> · Estimated finish {finish}</p>" in page

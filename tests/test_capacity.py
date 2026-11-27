@@ -329,7 +329,7 @@ def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_ma
     assert first.status_code == 200
     assert b"Production timing" in first.content and b"Estimated step finish" in first.content
     assert first.context["timing"]["duration"] == 111
-    assert b"1m 51s remaining" in first.content
+    assert b"About 2m remaining" in first.content
     assert first.context["timing"]["peak_new_jobs"]["manufacturing"] == 1
     response = client.post(
         reverse("aa_industry_planner:configuration"),
@@ -340,7 +340,7 @@ def test_saved_plan_forecast_uses_current_slot_settings_without_recalculating_ma
     assert response.status_code == 302
     second = client.get(url)
     assert second.context["timing"]["duration"] == 91
-    assert b"1m 31s remaining" in second.content
+    assert b"About 2m remaining" in second.content
     assert second.context["timing"]["peak_new_jobs"]["manufacturing"] == 2
     plan.refresh_from_db()
     assert plan.snapshot == snapshot

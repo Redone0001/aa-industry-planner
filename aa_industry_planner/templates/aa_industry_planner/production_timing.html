@@ -6,7 +6,8 @@
   </div>
   {% if progress.total %}
     {% if timing.duration %}
-      <p class="mb-1"><strong class="fs-5">{{ timing.duration|duration }} remaining</strong> · Estimated finish {{ timing.finish_at|date:'d M Y H:i:s T' }}</p>
+      {% production_estimate timing.duration timing.finish_at as estimate %}
+      <p class="mb-1"><strong class="fs-5">About {{ estimate.remaining }} remaining</strong> · Estimated finish {{ estimate.finish_at|date:estimate.date_format }}</p>
     {% elif timing.duration == 0 %}
       <p class="mb-1"><strong>No production time remaining</strong></p>
     {% elif timing.too_large %}

@@ -1,6 +1,8 @@
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django import template
+from django.utils.timezone import template_localtime
 from eve_sde.models import ItemType
 
 register = template.Library()
@@ -83,6 +85,27 @@ def duration(value):
         for amount, unit in [(days, "d"), (hours, "h"), (minutes, "m"), (seconds, "s")]
         if amount
     )
+
+
+@register.simple_tag
+def production_estimate(seconds, finish_at):
+    day = 86_400
+    if seconds > 10 * day:
+        unit, date_format = day, "d M Y"
+    else:
+        unit = 3_600 if seconds > day else 60
+        date_format = "d M Y H:i T"
+        local_finish = template_localtime(finish_at)
+        elapsed = timedelta(
+            minutes=local_finish.minute if unit == 3_600 else 0,
+            seconds=local_finish.second,
+            microseconds=local_finish.microsecond,
+        )
+        if elapsed:
+            finish_at += timedelta(seconds=unit) - elapsed
+
+    rounded_seconds = (seconds + unit - 1) // unit * unit
+    return dict(remaining=duration(rounded_seconds), finish_at=finish_at, date_format=date_format)
 
 
 @register.filter

@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.3"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.3"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.3"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.3" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.4" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -268,7 +268,7 @@ Manage character/corporation ESI connections in **Configuration → Characters &
 
 Under **Production slots, warnings & sync**, enter total **manufacturing** and **reaction** slots across your characters. These are separate activity budgets, as described in [CCP’s job type documentation](https://support.eveonline.com/hc/en-us/articles/203210272-Activities-and-Job-Types). Zero leaves new work in that activity unscheduled. Saved plan pages recalculate their timing forecast using current slot settings, saved job durations, completed/ongoing coverage and current imported jobs, without replacing their material/cost snapshots. Each step shows its estimated finish in the compact row and start/finish dates in its details. Refresh the plan calculation after changing batch limits, structures or skills.
 
-**Production timing** shows the estimated time remaining first, then counts steps in the Production sequence as complete, in jobs, or waiting. A step is complete when all its planned output has finished production. A step with any output still in jobs counts as in jobs. Jobs that have finished and are awaiting delivery count toward completion and appear in a separate delivery count. The peak concurrent new jobs shows how much parallel work the current forecast schedules. Extra slots shorten the estimate when ready batches can overlap. If reaction formula supply limits parallel work, the affected step shows that limit in its timing details.
+**Production timing** shows the estimated time remaining first, then counts steps in the Production sequence as complete, in jobs, or waiting. Time remaining rounds up to the next minute, to the next hour above 24 hours, or to the next day above 10 days. A step is complete when all its planned output has finished production. A step with any output still in jobs counts as in jobs. Jobs that have finished and are awaiting delivery count toward completion and appear in a separate delivery count. The peak concurrent new jobs shows how much parallel work the current forecast schedules. Extra slots shorten the estimate when ready batches can overlap. If reaction formula supply limits parallel work, the affected step shows that limit in its timing details.
 
 Use **Sidebar badge** in the same section to show empty slots and jobs awaiting delivery next to **Industry Planner**. Choose both activities, manufacturing only, reactions only, or off. A job counts as one delivery action when ESI reports it ready or it still reports Active past the scheduled finish. Each delivery counts once, even when the remaining jobs already fill your slot budget. For example, set the badge to reactions only and configure 20 reaction slots. With 20 or more jobs still running and none to deliver, the badge is hidden. When five finish, it shows **5**. With 15 jobs still running, delivering the five changes those five delivery actions into five empty slots to fill.
 
