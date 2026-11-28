@@ -19,13 +19,13 @@ def test_asset_import_uses_all_pages_and_passes_token_object():
     source = Mock(kind="corporation", owner_id=98000001, token=object())
     client = Mock()
     operation = client.Assets.GetCorporationsCorporationIdAssets.return_value
-    operation.results.return_value = [{"item_id": 1}]
+    operation.results.return_value = ([{"item_id": 1}], Mock(headers={}))
     with patch.object(esi, "_client", client):
         assert provider.assets(source) == [{"item_id": 1}]
     client.Assets.GetCorporationsCorporationIdAssets.assert_called_once_with(
         corporation_id=98000001, token=source.token
     )
-    operation.results.assert_called_once_with(use_etag=False)
+    operation.results.assert_called_once_with(use_etag=False, return_response=True)
 
 
 def test_job_import_requests_completed_jobs():

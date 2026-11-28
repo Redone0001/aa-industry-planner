@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from django.db.models import Count
+from django.db.models.functions import Coalesce
 
 from aa_industry_planner.models import Asset, IndustryJob, InventorySource, ManualStock
 from aa_industry_planner.providers import missing_scopes
@@ -40,6 +41,10 @@ def authorized_sources(user):
             continue
         allowed.append(source.pk)
     return InventorySource.objects.filter(pk__in=allowed)
+
+
+def asset_snapshot_dates(sources):
+    return dict(sources.values_list("pk", Coalesce("assets_modified_at", "last_assets_sync")))
 
 
 def assets_at_locations(sources, known_locations):

@@ -14,7 +14,7 @@ from aa_industry_planner.providers import ESI, esi
 from aa_industry_planner.tasks import refresh_source
 
 
-def cached_operation(name, pages, *, paginated=False, parameters=None):
+def cached_operation(name, pages, *, paginated=False, parameters=None, last_modified=None):
     """Use django-esi's actual response/ETag caches without making HTTP requests."""
     spec = SimpleNamespace(
         operationId=name,
@@ -40,6 +40,8 @@ def cached_operation(name, pages, *, paginated=False, parameters=None):
             "Date": format_datetime(timezone.now(), usegmt=True),
             "Cache-Control": "public, max-age=3600",
         }
+        if last_modified is not None:
+            headers["Last-Modified"] = format_datetime(last_modified, usegmt=True)
         response = httpx2.Response(200, headers=headers, json=payload)
         cache.set(operation._cache_key(), response, 3600)
         cache.set(operation._etag_key(), headers["ETag"], 3600)
@@ -115,9 +117,13 @@ def test_identity_role_and_public_reads_return_cached_payloads(
 
 def test_worker_imports_cached_assets_and_changed_jobs_without_retry_or_losing_stock(user, source):
     owner = {"character_id": source.owner_id}
+    now = timezone.now().replace(microsecond=0)
+    snapshot_at = now - timezone.timedelta(minutes=10)
+    completed_at = now - timezone.timedelta(minutes=5)
     assets = [{"item_id": 42, "type_id": 34, "quantity": 11, "location_id": 60000001}]
-    assets_op = cached_operation("Assets", [assets], paginated=True, parameters=owner)
-    now = timezone.now()
+    assets_op = cached_operation(
+        "Assets", [assets], paginated=True, parameters=owner, last_modified=snapshot_at
+    )
     jobs = [
         {
             "job_id": 54321,
@@ -126,9 +132,10 @@ def test_worker_imports_cached_assets_and_changed_jobs_without_retry_or_losing_s
             "blueprint_type_id": 101,
             "facility_id": 1000000000001,
             "runs": 9,
-            "status": "active",
-            "start_date": now.isoformat(),
-            "end_date": (now + timezone.timedelta(days=6)).isoformat(),
+            "status": "delivered",
+            "start_date": (now - timezone.timedelta(days=6)).isoformat(),
+            "end_date": snapshot_at.isoformat(),
+            "completed_date": completed_at.isoformat(),
         }
     ]
     jobs_op = cached_operation("Jobs", [jobs], parameters=dict(owner, include_completed=True))
@@ -154,8 +161,10 @@ def test_worker_imports_cached_assets_and_changed_jobs_without_retry_or_losing_s
     assert source.enabled
     assert source.last_error == ""
     assert source.last_assets_sync and source.last_jobs_sync
+    assert source.assets_modified_at == snapshot_at < completed_at < source.last_assets_sync
     assert Asset.objects.get(source=source, item_id=42).quantity == 11
-    assert IndustryJob.objects.get(source=source, job_id=54321).runs == 9
+    job = IndustryJob.objects.get(source=source, job_id=54321)
+    assert (job.runs, job.completed_date) == (9, completed_at)
     assert not Notification.objects.filter(user=user, kind="sync_failed").exists()
     assets_op._make_request.assert_not_called()
     jobs_op._make_request.assert_not_called()

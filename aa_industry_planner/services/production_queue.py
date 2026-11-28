@@ -12,18 +12,18 @@ from aa_industry_planner.engine import (
 )
 from aa_industry_planner.models import Facility, FacilityService
 
-from .inventory import authorized_sources, inventory_by_location
+from .inventory import asset_snapshot_dates, authorized_sources, inventory_by_location
 from .locations import InventoryLocations
-from .readiness import multibuy_line, ready_job_inputs, reserve_inputs
+from .readiness import finished_job_inputs, multibuy_line, reserve_inputs
 from .scheduling import remaining_work, saved_targets, target_inventory, target_production
 
 
-def next_batch(work, scope, stock, ready_inputs):
+def next_batch(work, scope, stock, job_inputs):
     # Match the forecast: try a full batch first, then its smaller tail.
     for runs in work.batches:
         inputs = work.inputs_for_batch(runs)
         reservation = reserve_inputs(
-            inputs, scope.destination_id, scope.location_ids, stock, ready_inputs
+            inputs, scope.destination_id, scope.location_ids, stock, job_inputs
         )
         if reservation is not None:
             return runs, inputs, reservation
@@ -34,7 +34,7 @@ def production_queue(user, plans):
     locations = InventoryLocations(user)
     location_ids = set(locations.all_ids)
     stock = inventory_by_location(user, locations, include_elsewhere=True)
-    source_ids = set(authorized_sources(user).values_list("pk", flat=True))
+    asset_dates = asset_snapshot_dates(authorized_sources(user))
     services = set(
         FacilityService.objects.filter(
             online=True,
@@ -83,7 +83,7 @@ def production_queue(user, plans):
     for production in plans:
         steps = list(production.steps.all())
         target_demand = target_production(production.snapshot)
-        ready_inputs = ready_job_inputs(steps, source_ids, location_ids, target_demand)
+        job_inputs = finished_job_inputs(steps, asset_dates, location_ids, target_demand)
         work, _ = remaining_work(
             steps,
             target_demand=target_demand,
@@ -114,7 +114,7 @@ def production_queue(user, plans):
                         reason="Assign an available production facility and refresh the plan.",
                     )
                 )
-            elif batch := next_batch(step_work, scope, stock, ready_inputs):
+            elif batch := next_batch(step_work, scope, stock, job_inputs):
                 runs, batch_inputs, (batch_stock, transfers, needs_delivery) = batch
                 ready.append(
                     dict(label, runs=runs, transfers=transfers, needs_delivery=needs_delivery)

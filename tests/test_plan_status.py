@@ -1,12 +1,14 @@
 from types import SimpleNamespace
 
 import pytest
+from django.contrib.auth.models import Permission
 from django.urls import reverse
+from django.utils import timezone
 
-from aa_industry_planner.models import InventorySource, ManualStock, UserPreferences
+from aa_industry_planner.models import Asset, InventorySource, ManualStock, UserPreferences
 from aa_industry_planner.services.jobs import reconcile_jobs, update_progress
 from aa_industry_planner.services.planning import create_plan, refresh_plan
-from aa_industry_planner.services.readiness import annotate_steps, multibuy_text
+from aa_industry_planner.services.readiness import JobInputs, annotate_steps, multibuy_text
 from tests.conftest import add_recipe
 from tests.test_services import make_job
 
@@ -183,22 +185,25 @@ def test_finished_output_is_reserved_once_at_eligible_locations():
     first = step(3, {"5": 8}, locations=(10, 20))
     second = step(4, {"5": 8}, locations=(10, 20))
     annotate_steps(
-        [wrong_location, missing_input, first, second], {}, ready_inputs={5: {20: 8}}
+        [wrong_location, missing_input, first, second],
+        {},
+        job_inputs=JobInputs(awaiting_delivery={5: {20: 8}}),
     )
     assert wrong_location.state == missing_input.state == second.state == "blocked"
     assert first.state == "ready" and first.needs_haul
     assert first.state_label == "Ready to craft · deliver inputs"
 
 
+@pytest.mark.parametrize("corporation_job", [False, True])
 def test_downstream_readiness_uses_finished_output_and_inventory(
-    user, source, types, assigned_facility, client
+    user, source, types, assigned_facility, client, corporation_job
 ):
     add_recipe(types, 1, {2: 3, 5: 2})
     add_recipe(types, 2, {4: 1})
     production = create_plan(user, 1, 1, use_inventory=False, default_me=0)
     job = make_job(user, source, blueprint_type_id=102, product_type_id=2, runs=2)
     manual = InventorySource.objects.create(user=user, kind="manual", name="Stock")
-    component = ManualStock.objects.create(
+    ManualStock.objects.create(
         source=manual, item_type=types[2], facility=assigned_facility, quantity=1
     )
     client.force_login(user)
@@ -227,15 +232,44 @@ def test_downstream_readiness_uses_finished_output_and_inventory(
     assert client.get(plan_url).context["tree"]["item"]["state"] == "blocked"
     assert not client.get(queue_url).context["ready"]
 
-    # Once delivered, the imported inventory supplies these units.
+    delivered_at = timezone.now()
+    asset_source = source
+    if corporation_job:
+        user.user_permissions.add(Permission.objects.get(codename="use_corporation_data"))
+        asset_source = InventorySource.objects.create(
+            user=user, kind="corporation", name="Corp", owner_id=98000001, token=source.token
+        )
+        source.assets_modified_at = delivered_at
+        source.save(update_fields=["assets_modified_at"])
+        job.corporation_asset_source = asset_source
+    asset_source.assets_modified_at = delivered_at - timezone.timedelta(minutes=10)
+    # A fresh worker run can still read an older cached asset snapshot.
+    asset_source.last_assets_sync = delivered_at + timezone.timedelta(minutes=1)
+    asset_source.save(update_fields=["assets_modified_at", "last_assets_sync"])
     job.status = "delivered"
-    job.save(update_fields=["status"])
-    raw_input.quantity = 2
-    raw_input.save(update_fields=["quantity"])
+    job.completed_date = delivered_at
+    job.save(update_fields=["status", "completed_date", "corporation_asset_source"])
     assert client.get(plan_url).context["tree"]["item"]["state"] == "blocked"
     assert not client.get(queue_url).context["ready"]
-    component.quantity = 3
-    component.save(update_fields=["quantity"])
+
+    raw_input.quantity = 2
+    raw_input.save(update_fields=["quantity"])
+    assert client.get(plan_url).context["tree"]["item"]["state_label"] == "Ready to craft"
+    queue = client.get(queue_url)
+    (batch,) = queue.context["ready"]
+    assert not batch["needs_delivery"] and not queue.context["delivery"]
+
+    asset_source.assets_modified_at = delivered_at + timezone.timedelta(minutes=1)
+    asset_source.save(update_fields=["assets_modified_at"])
+    assert client.get(plan_url).context["tree"]["item"]["state"] == "blocked"
+    assert not client.get(queue_url).context["ready"]
+    Asset.objects.create(
+        source=asset_source,
+        item_id=42,
+        type_id=2,
+        location_id=assigned_facility.structure_id,
+        quantity=2,
+    )
     assert client.get(plan_url).context["tree"]["item"]["state_label"] == "Ready to craft"
     (batch,) = client.get(queue_url).context["ready"]
     assert not batch["needs_delivery"]

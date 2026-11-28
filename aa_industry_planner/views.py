@@ -69,6 +69,7 @@ from .services.capacity import capacity_status
 from .services.costs import plan_cost
 from .services.gas import gas_multibuy
 from .services.inventory import (
+    asset_snapshot_dates,
     assets_at_locations,
     authorized_sources,
     inventory_by_location,
@@ -99,7 +100,7 @@ from .services.presentation import (
     visible_stock_details,
 )
 from .services.production_queue import production_queue as build_production_queue
-from .services.readiness import annotate_steps, multibuy_line, multibuy_text, ready_job_inputs
+from .services.readiness import annotate_steps, finished_job_inputs, multibuy_line, multibuy_text
 from .services.scheduling import estimate_schedule, target_production
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment, plannable_tasks
@@ -340,8 +341,8 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         stock_at_locations(sources, locations.names, assets),
         checked,
         available_services=services,
-        ready_inputs=ready_job_inputs(
-            steps, set(job_sources.values_list("pk", flat=True)), locations.names, target_demand
+        job_inputs=finished_job_inputs(
+            steps, asset_snapshot_dates(job_sources), locations.names, target_demand
         ),
     )
     allocations = [a for s in steps for a in s.allocations.all()]

@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.2"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.2"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.2"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.2" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -180,7 +180,7 @@ Saved calculations retain their original snapshot. Old calculations that used po
 
 The graph, tree and production sequence share availability colours: **solid green** for stock/completed output, **blue** for ready to craft, **purple** for active/paused jobs, **amber** for buy/import and **grey** for missing inputs. A **dashed border** identifies a shared input while retaining its availability colour. Activity names still distinguish manufacturing and reactions.
 
-Readiness uses the latest authorized, included inventory at each step’s saved production and storage locations, with a visible online production service. Linked jobs that ESI reports as ready to deliver supply their credited output at the job’s structure after setting aside units requested as plan targets. Steps using those units show **Ready to craft · deliver inputs**. Once delivered, the units count through the asset import. Each step still requires every remaining input, and shared quantities are allocated once in production order. Storage supplies are marked for hauling. The Production queue applies the same check to the next batch and keeps output awaiting delivery within its linked plan. Historic plans without saved location scopes need a refresh.
+Readiness uses the latest authorized, included inventory at each step’s saved production and storage locations, with a visible online production service. Finished linked jobs supply their credited output at the job’s structure after setting aside units requested as plan targets. Steps relying on delivery show **Ready to craft · deliver inputs**. When ESI reports delivery, the output still covers inputs until the source’s asset snapshot reaches the job’s recorded delivery time. Reimporting an older cached snapshot preserves this coverage. Each step still requires every remaining input, and shared quantities are allocated once in production order. Storage supplies are marked for hauling. The Production queue applies the same check to the next batch and uses these finished job quantities within their linked plan. Historic plans without saved location scopes need a refresh.
 
 Production steps start as compact rows: **item × planned output · runs**, with the availability colour, shared border and installation estimate. Click the row (or press Enter/Space) to reveal time, progress, reminders, location, materials, batches and linked jobs. Graph/tree/dependency links open the target step automatically, even when a filter hid it.
 

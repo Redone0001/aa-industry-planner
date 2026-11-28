@@ -424,6 +424,7 @@ class InventorySource(models.Model):
         default=True, help_text="Disable for a manual source that duplicates imported assets."
     )
     last_assets_sync = models.DateTimeField(null=True, blank=True)
+    assets_modified_at = models.DateTimeField(null=True, blank=True)
     last_jobs_sync = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=250, blank=True)
     sync_error_since = models.DateTimeField(null=True, blank=True)
@@ -597,6 +598,9 @@ class IndustryJob(models.Model):
     user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="industry_jobs")
     job_id = models.PositiveBigIntegerField()
     source = models.ForeignKey(InventorySource, on_delete=models.CASCADE, related_name="jobs")
+    corporation_asset_source = models.ForeignKey(
+        InventorySource, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
     installer_id = models.PositiveBigIntegerField()
     activity_id = models.PositiveSmallIntegerField()
     blueprint_type_id = models.PositiveBigIntegerField()
@@ -609,6 +613,7 @@ class IndustryJob(models.Model):
     auto_link_disabled = models.BooleanField(default=False)
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
+    completed_date = models.DateTimeField(null=True, blank=True)
     cost = models.DecimalField(max_digits=24, decimal_places=2, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 

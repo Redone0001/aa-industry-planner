@@ -103,7 +103,9 @@ class ESI:
             operation = esi.client.Assets.GetCharactersCharacterIdAssets(
                 character_id=source.owner_id, token=source.token
             )
-        return unpack(operation.results(use_etag=False))
+        data, response = operation.results(use_etag=False, return_response=True)
+        self.assets_metadata = public_cache_metadata(response)
+        return unpack(data)
 
     def jobs(self, source):
         if source.kind == "corporation":

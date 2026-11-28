@@ -458,6 +458,7 @@ def test_corporation_import_deduplicates_personal_jobs(user, source):
     assert IndustryJob.objects.count() == 1
     job.refresh_from_db()
     assert job.source_id == source.pk
+    assert job.corporation_asset_source_id == corp.pk
 
 
 def test_director_role_and_esi_membership_checked_before_corp_fetch(user, source):

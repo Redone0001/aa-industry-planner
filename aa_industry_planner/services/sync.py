@@ -59,6 +59,8 @@ def sync_source(source, api=None):
     # Fetch every page of both datasets before replacing any stored asset snapshot.
     source._sync_stage = "fetching assets"
     assets = api.assets(source)
+    metadata = getattr(api, "assets_metadata", None)
+    assets_modified_at = metadata.get("source_modified_at") if isinstance(metadata, dict) else None
     source._sync_stage = "fetching jobs"
     jobs = api.jobs(source)
     timestamp = timezone.now()
@@ -107,6 +109,10 @@ def sync_source(source, api=None):
                 .select_related("source")
                 .first()
             )
+            if completed := data.get("completed_date"):
+                fields["completed_date"] = parse_datetime(completed)
+            if source.kind == InventorySource.Kind.CORPORATION:
+                fields["corporation_asset_source"] = source
             # A personal endpoint and corporate endpoint can report the same job.
             fields["source"] = (
                 existing.source
@@ -123,6 +129,7 @@ def sync_source(source, api=None):
                 notify_job_finished(job)
         InventorySource.objects.filter(pk=source.pk).update(
             last_assets_sync=timestamp,
+            assets_modified_at=assets_modified_at,
             last_jobs_sync=timestamp,
             last_error="",
             sync_error_since=None,
