@@ -12,33 +12,21 @@ from aa_industry_planner.engine import (
 )
 from aa_industry_planner.models import Facility, FacilityService
 
-from .inventory import inventory_by_location
+from .inventory import authorized_sources, inventory_by_location
 from .locations import InventoryLocations
-from .readiness import multibuy_line
+from .readiness import multibuy_line, ready_job_inputs, reserve_inputs
 from .scheduling import remaining_work, saved_targets, target_inventory, target_production
 
 
-def next_batch(work, scope, stock):
-    eligible = sorted(scope.location_ids, key=lambda loc: (loc != scope.destination_id, loc))
-    available = {
-        tid: sum(stock.get(tid, {}).get(loc, 0) for loc in eligible)
-        for tid in work.remaining_inputs()
-    }
+def next_batch(work, scope, stock, ready_inputs):
     # Match the forecast: try a full batch first, then its smaller tail.
     for runs in work.batches:
         inputs = work.inputs_for_batch(runs)
-        if any(available[tid] < quantity for tid, quantity in inputs.items()):
-            continue
-        transfers = False
-        for tid, quantity in inputs.items():
-            pile = stock.get(tid, {})
-            for loc in eligible:
-                used = min(quantity, pile.get(loc, 0))
-                if used:
-                    pile[loc] -= used
-                    quantity -= used
-                    transfers |= loc != scope.destination_id
-        return runs, inputs, transfers
+        reservation = reserve_inputs(
+            inputs, scope.destination_id, scope.location_ids, stock, ready_inputs
+        )
+        if reservation is not None:
+            return runs, inputs, reservation
     return None
 
 
@@ -46,6 +34,7 @@ def production_queue(user, plans):
     locations = InventoryLocations(user)
     location_ids = set(locations.all_ids)
     stock = inventory_by_location(user, locations, include_elsewhere=True)
+    source_ids = set(authorized_sources(user).values_list("pk", flat=True))
     services = set(
         FacilityService.objects.filter(
             online=True,
@@ -92,9 +81,12 @@ def production_queue(user, plans):
         requirements[tid] = pending
 
     for production in plans:
+        steps = list(production.steps.all())
+        target_demand = target_production(production.snapshot)
+        ready_inputs = ready_job_inputs(steps, source_ids, location_ids, target_demand)
         work, _ = remaining_work(
-            production.steps.all(),
-            target_demand=target_production(production.snapshot),
+            steps,
+            target_demand=target_demand,
             include_external=True,
         )
         for step_work in sorted(work.values(), key=lambda row: row.step.position):
@@ -114,7 +106,7 @@ def production_queue(user, plans):
             if not step_work.batches:
                 continue
 
-            batch_inputs = {}
+            batch_inputs, batch_stock = {}, {}
             if not scope.destination_id or step.service_id not in services:
                 waiting.append(
                     dict(
@@ -122,20 +114,23 @@ def production_queue(user, plans):
                         reason="Assign an available production facility and refresh the plan.",
                     )
                 )
-            elif batch := next_batch(step_work, scope, stock):
-                runs, batch_inputs, transfers = batch
-                ready.append(dict(label, runs=runs, transfers=transfers))
+            elif batch := next_batch(step_work, scope, stock, ready_inputs):
+                runs, batch_inputs, (batch_stock, transfers, needs_delivery) = batch
+                ready.append(
+                    dict(label, runs=runs, transfers=transfers, needs_delivery=needs_delivery)
+                )
             else:
                 waiting.append(
                     dict(label, reason="Waiting for inputs at production or storage locations.")
                 )
 
             for tid, amount in step_work.remaining_inputs().items():
+                amount -= batch_inputs.get(tid, 0)
                 # For intermediates, acquire only the portion the saved plan expects from stock.
                 # The rest is supplied by this plan's own production steps.
                 if tid in work:
-                    amount = min(amount, step_work.stock[tid])
-                require(tid, amount - batch_inputs.get(tid, 0), scope, production)
+                    amount = min(amount, step_work.stock[tid] - batch_stock.get(tid, 0))
+                require(tid, amount, scope, production)
 
     shortages = []
     for tid, rows in requirements.items():

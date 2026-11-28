@@ -177,6 +177,70 @@ def test_ready_storage_is_marked_for_hauling_and_running_output_is_not_stock():
     assert active.state == "complete" and consumer.state == "blocked"
 
 
+def test_finished_output_is_reserved_once_at_eligible_locations():
+    wrong_location = step(1, {"5": 8})
+    missing_input = step(2, {"5": 1, "6": 1}, locations=(10, 20))
+    first = step(3, {"5": 8}, locations=(10, 20))
+    second = step(4, {"5": 8}, locations=(10, 20))
+    annotate_steps(
+        [wrong_location, missing_input, first, second], {}, ready_inputs={5: {20: 8}}
+    )
+    assert wrong_location.state == missing_input.state == second.state == "blocked"
+    assert first.state == "ready" and first.needs_haul
+    assert first.state_label == "Ready to craft · deliver inputs"
+
+
+def test_downstream_readiness_uses_finished_output_and_inventory(
+    user, source, types, assigned_facility, client
+):
+    add_recipe(types, 1, {2: 3, 5: 2})
+    add_recipe(types, 2, {4: 1})
+    production = create_plan(user, 1, 1, use_inventory=False, default_me=0)
+    job = make_job(user, source, blueprint_type_id=102, product_type_id=2, runs=2)
+    manual = InventorySource.objects.create(user=user, kind="manual", name="Stock")
+    component = ManualStock.objects.create(
+        source=manual, item_type=types[2], facility=assigned_facility, quantity=1
+    )
+    client.force_login(user)
+    plan_url = reverse("aa_industry_planner:plan", args=[production.pk])
+    queue_url = reverse("aa_industry_planner:production_queue")
+
+    raw_input = ManualStock.objects.create(
+        source=manual, item_type=types[5], facility=assigned_facility, quantity=2
+    )
+    assert client.get(plan_url).context["tree"]["item"]["state"] == "blocked"
+    assert not client.get(queue_url).context["ready"]
+
+    job.status = "ready"
+    job.save(update_fields=["status"])
+    ready = client.get(plan_url)
+    assert ready.context["tree"]["item"]["state_label"] == "Ready to craft · deliver inputs"
+    graph = {node["id"]: node for node in ready.context["dependency_graph"]["nodes"]}
+    assert graph[1]["state"] == "ready"
+    queue = client.get(queue_url)
+    (batch,) = queue.context["ready"]
+    assert batch["step"].item_type_id == 1 and batch["needs_delivery"]
+    assert queue.context["delivery"][0]["jobs"] == [job]
+
+    raw_input.quantity = 1
+    raw_input.save(update_fields=["quantity"])
+    assert client.get(plan_url).context["tree"]["item"]["state"] == "blocked"
+    assert not client.get(queue_url).context["ready"]
+
+    # Once delivered, the imported inventory supplies these units.
+    job.status = "delivered"
+    job.save(update_fields=["status"])
+    raw_input.quantity = 2
+    raw_input.save(update_fields=["quantity"])
+    assert client.get(plan_url).context["tree"]["item"]["state"] == "blocked"
+    assert not client.get(queue_url).context["ready"]
+    component.quantity = 3
+    component.save(update_fields=["quantity"])
+    assert client.get(plan_url).context["tree"]["item"]["state_label"] == "Ready to craft"
+    (batch,) = client.get(queue_url).context["ready"]
+    assert not batch["needs_delivery"]
+
+
 def test_readiness_updates_from_latest_stock_without_recalculating_plan(
     user, recipes, assigned_facility, client
 ):

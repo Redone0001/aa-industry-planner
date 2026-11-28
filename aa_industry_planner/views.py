@@ -99,7 +99,7 @@ from .services.presentation import (
     visible_stock_details,
 )
 from .services.production_queue import production_queue as build_production_queue
-from .services.readiness import annotate_steps, multibuy_line, multibuy_text
+from .services.readiness import annotate_steps, multibuy_line, multibuy_text, ready_job_inputs
 from .services.scheduling import estimate_schedule, target_production
 from .services.type_search import search_types
 from .services.watches import evaluate_watches, plan_replenishment, plannable_tasks
@@ -236,6 +236,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         )
     )
     snapshot = production.snapshot
+    target_demand = target_production(snapshot)
     locations = InventoryLocations(request.user)
     scoped = snapshot.get("stock_elsewhere_scoped")
     transfer_names = locations.transfer_names if scoped and snapshot.get("inventory_used") else {}
@@ -296,7 +297,8 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         | {loc for _, loc in formula_keys}
         | blueprint_sites.keys()
     )
-    sources = authorized_sources(request.user).filter(include_in_planning=True)
+    job_sources = authorized_sources(request.user)
+    sources = job_sources.filter(include_in_planning=True)
     assets = list(assets_at_locations(sources, asset_locations))
     found = defaultdict(set)
     for asset, location in assets:
@@ -338,6 +340,9 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         stock_at_locations(sources, locations.names, assets),
         checked,
         available_services=services,
+        ready_inputs=ready_job_inputs(
+            steps, set(job_sources.values_list("pk", flat=True)), locations.names, target_demand
+        ),
     )
     allocations = [a for s in steps for a in s.allocations.all()]
     outputs = job_outputs([a.job for a in allocations])
@@ -349,7 +354,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         steps,
         preferences,
         capacity["jobs"],
-        target_demand=target_production(snapshot),
+        target_demand=target_demand,
         reaction_formulas=reaction_formulas,
     )
 
@@ -362,6 +367,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
                 "ongoing": step.ongoing_progress,
                 "ongoing_quantity": step.ongoing_quantity,
                 "state": step.state,
+                "state_label": step.state_label,
             }
             for tid, step in step_map.items()
         },
@@ -416,7 +422,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
             side: values.get(str(step.item_type_id)) for side, values in cost["steps"].items()
         }
     visible_jobs = IndustryJob.objects.filter(
-        user=request.user, source__in=authorized_sources(request.user), allocation__isnull=True
+        user=request.user, source__in=job_sources, allocation__isnull=True
     ).exclude(status__in=["cancelled", "reverted"])
     if settings_form is None:
         settings_form = PlanSettingsForm(instance=production, prefix="settings")

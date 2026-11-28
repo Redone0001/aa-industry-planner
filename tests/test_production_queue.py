@@ -10,7 +10,7 @@ from aa_industry_planner.models import (
     ProductionPlan,
     UserPreferences,
 )
-from aa_industry_planner.services.planning import create_plan
+from aa_industry_planner.services.planning import create_plan, create_plan_for_targets
 
 from .conftest import add_recipe
 from .test_services import make_job
@@ -103,6 +103,27 @@ def test_queue_keeps_stock_that_fulfils_a_requested_output(user, client, types, 
     response = client.get(reverse("aa_industry_planner:production_queue"))
     assert not response.context["ready"]
     assert response.context["multibuy"] == "Raw input 1"
+
+
+def test_queue_keeps_undelivered_output_for_its_plan_and_targets(
+    user, client, source, types, assigned_facility
+):
+    add_recipe(types, 2, {5: 1})
+    add_recipe(types, 3, {2: 1})
+    plan = create_plan_for_targets(user, {2: 1, 3: 1}, use_inventory=False)
+    other_plan = create_plan(user, 3, 1, use_inventory=False)
+    job = make_job(user, source, blueprint_type_id=102, product_type_id=2, status="ready", runs=1)
+    client.force_login(user)
+    url = reverse("aa_industry_planner:production_queue")
+
+    assert not client.get(url).context["ready"]
+
+    job.runs = 2
+    job.save(update_fields=["runs"])
+    queue = client.get(url)
+    (batch,) = queue.context["ready"]
+    assert (batch["plan"], batch["step"].item_type_id) == (plan, 3)
+    assert any(row["plan"] == other_plan for row in queue.context["waiting"])
 
 
 def test_combined_queue_spends_stock_once_and_separates_hauling_from_buying(

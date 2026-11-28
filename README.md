@@ -11,7 +11,7 @@ Item search uses a dropdown with mouse and keyboard selection, a short typing de
 The interface inherits the selected Alliance Auth theme (including Flatly, Darkly and Materia). Cards, buttons, forms, tables, navigation and status badges use native Bootstrap components; charts and tree accents use the theme's CSS variables. Change the theme through AA's existing user settings menu.
 
 - Add items and quantities to a draft, then save them together as one production plan. Refresh saved plans with current configuration, archive or restore them, or remove archived plans through a confirmation page.
-- Open **Production queue** to see batches with inputs on hand, jobs to deliver, waiting steps, and what to buy or move across your active plans. Shared stock is counted once and the combined shopping list can be copied into EVE Multibuy.
+- Open **Production queue** to see batches with inputs on hand or ready to deliver, jobs to deliver, waiting steps, and what to buy or move across your active plans. Shared stock is counted once and the combined shopping list can be copied into EVE Multibuy.
 - Aggregate shared components before sizing jobs, allocate stock once within a plan at each consuming job’s permitted locations, and show a collapsible dependency tree, a zoomable graph with shared inputs and item inspection, and a numbered production sequence.
 - Set buy/import boundaries and an explicit recipe in item policies. Manufacturing plans default to blueprint ME 10 / TE 20, with plan defaults and individual blueprint overrides editable inside the planner. Reactions ignore ME/TE. Set maximum reaction runs or duration per job and effective character time bonuses in Configuration.
 - Select structure hulls, installed service modules, online states and industry rigs in Django admin. Derive product-specific material/time/cost multipliers from CCP's SDE, including security and Thukker/reactor rules. Restrict facilities to AA groups and let users assign locations per activity or product group.
@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.1" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -180,7 +180,7 @@ Saved calculations retain their original snapshot. Old calculations that used po
 
 The graph, tree and production sequence share availability colours: **solid green** for stock/completed output, **blue** for ready to craft, **purple** for active/paused jobs, **amber** for buy/import and **grey** for missing inputs. A **dashed border** identifies a shared input while retaining its availability colour. Activity names still distinguish manufacturing and reactions.
 
-Readiness uses the latest authorized, included inventory at each step’s saved production/storage locations, with a visible online production service. It requires all remaining input materials, accounts for completed runs and per-job material rounding, and allocates shared stock once in production order. Storage supplies are marked for hauling. Running or undelivered job output is never assumed to be available stock; downstream steps become ready after delivery and the next asset import. Readiness is a view-time check, not a reservation or live EVE access/skills check. Historic plans without saved location scopes need a refresh.
+Readiness uses the latest authorized, included inventory at each step’s saved production and storage locations, with a visible online production service. Linked jobs that ESI reports as ready to deliver supply their credited output at the job’s structure after setting aside units requested as plan targets. Steps using those units show **Ready to craft · deliver inputs**. Once delivered, the units count through the asset import. Each step still requires every remaining input, and shared quantities are allocated once in production order. Storage supplies are marked for hauling. The Production queue applies the same check to the next batch and keeps output awaiting delivery within its linked plan. Historic plans without saved location scopes need a refresh.
 
 Production steps start as compact rows: **item × planned output · runs**, with the availability colour, shared border and installation estimate. Click the row (or press Enter/Space) to reveal time, progress, reminders, location, materials, batches and linked jobs. Graph/tree/dependency links open the target step automatically, even when a filter hid it.
 

@@ -129,7 +129,7 @@ def plan_views(snapshot, steps, checked=()):
             "state_label": {
                 "stock": "In stock",
                 "complete": "Completed",
-                "ready": "Ready to craft",
+                "ready": step.get("state_label", "Ready to craft"),
                 "active": "Job active",
                 "buy": "Buy / import",
                 "blocked": "Missing inputs",
