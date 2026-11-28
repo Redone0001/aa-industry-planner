@@ -65,6 +65,20 @@ def test_invalid_target_keeps_draft_and_creates_no_plan(user, client, recipes):
     assert not ProductionPlan.objects.exists()
 
 
+def test_default_blueprint_settings_expand_when_a_value_is_invalid(user, client, recipes):
+    client.force_login(user)
+    url = reverse("aa_industry_planner:plans")
+    page = client.get(url)
+    assert b"data-blueprint-defaults >" in page.content
+    assert b"Default blueprint ME/TE" in page.content
+    assert b'name="default_material_efficiency" value="10"' in page.content
+    form = target_form((1, 1)) | {"default_material_efficiency": 11}
+    invalid = client.post(url, form)
+    assert b"data-blueprint-defaults open>" in invalid.content
+    assert invalid.context["form"]["default_material_efficiency"].errors
+    assert not ProductionPlan.objects.exists()
+
+
 def test_forecast_accounts_for_independent_outputs(user, client, types):
     add_recipe(types, 2, {5: 1}, seconds=60)
     add_recipe(types, 3, {5: 1}, seconds=150)

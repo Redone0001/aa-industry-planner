@@ -66,7 +66,7 @@ from .services.blueprints import (
     reaction_formula_key,
 )
 from .services.capacity import capacity_status
-from .services.costs import plan_cost, purchase_quantities
+from .services.costs import plan_cost
 from .services.gas import gas_multibuy
 from .services.inventory import (
     assets_at_locations,
@@ -368,13 +368,15 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         checked,
     )
     purchase_choices = snapshot.get("purchase_choices", {})
-    inputs = sorted(
+    buy_inputs = sorted(
         (
-            dict(nodes[tid], checked=int(tid) in checked, planned_purchase=tid in purchase_choices)
-            for tid in purchase_quantities(nodes)
+            dict(node, checked=int(tid) in checked, planned_purchase=tid in purchase_choices)
+            for tid, node in nodes.items()
+            if node["required"] and not node["runs"]
         ),
         key=lambda row: row["name"].casefold(),
     )
+    inputs = [row for row in buy_inputs if row["missing"]]
     classifications = {
         tid: (group, category)
         for tid, group, category in ItemType.objects.filter(
@@ -433,6 +435,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         legacy_inventory_scope=snapshot.get("inventory_used", True)
         and "inventory_locations" not in snapshot,
         legacy_transfers=legacy_transfers,
+        buy_inputs=buy_inputs,
         inputs=inputs,
         multibuy=multibuy_text(inputs),
         gas_multibuy=gas_multibuy(inputs, preferences.gas_decompression_yield),

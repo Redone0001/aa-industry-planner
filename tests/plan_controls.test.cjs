@@ -5,6 +5,17 @@ const {resolve} = require('node:path');
 const {runInNewContext} = require('node:vm');
 const source = readFileSync(resolve(__dirname, '../aa_industry_planner/static/aa_industry_planner/plan_controls.js'), 'utf8');
 
+function filterButton(key, value, pressed = false) {
+  return {
+    dataset: {[key]: value},
+    pressed: String(pressed),
+    classList: {toggle() {}},
+    addEventListener(event, callback) { this[event] = callback; },
+    setAttribute(_, value) { this.pressed = value; },
+    focus() {},
+  };
+}
+
 test('each details panel saves its open or closed state in its own cookie', () => {
   const panels = ['aip_blueprints', 'aip_reaction_formulas'].map(panelCookie => ({
     dataset: {panelCookie}, open: false, addEventListener(event, callback) { this[event] = callback; },
@@ -41,7 +52,10 @@ function browser({failSave=false, failCopy=false}={}) {
     dataset:{buyLine,buyCategory},classList:{contains:()=>index===0},
   }));
   textarea.value=rows.map(row=>row.dataset.buyLine).join('\n');
-  const section={querySelector:selector=>selector==='[data-multibuy-text]'?textarea:status,querySelectorAll:()=>rows};
+  const stocked = {dataset: {}, hidden: true};
+  const [missingFilter, allFilter] = [filterButton('buyFilter', 'missing', true), filterButton('buyFilter', 'all')];
+  const section={querySelector:selector=>selector==='[data-multibuy-text]'?textarea:status,querySelectorAll:selector=>selector==='[data-buy-row]'?[...rows, stocked]:rows};
+  const filters = {closest: () => section, querySelectorAll: () => [missingFilter, allFilter], hidden: true};
   const buttons=['','unchecked','minerals','pi','moon-goo'].map(value=>({dataset:{copyMultibuy:value},closest:()=>section,addEventListener(_,fn){this.click=fn;}}));
   for (const [mode, copyText] of [
     ['gas', 'Amber Mykoserocin 50\nFullerite-C50 100'],
@@ -52,6 +66,7 @@ function browser({failSave=false, failCopy=false}={}) {
       if(selector==='[data-checklist-save]')return[save];
       if(selector==='[data-checklist]')return[form];
       if(selector==='[data-copy-multibuy]')return buttons;
+      if(selector==='[data-buy-filter-controls]')return[filters];
       if(selector.includes('data-review-item'))return[card];
       if(selector.includes('input[name'))return[checkbox,twin];
       return[];
@@ -60,7 +75,7 @@ function browser({failSave=false, failCopy=false}={}) {
     fetch:async (url,options)=>{requests.push({url,...options});return{ok:!failSave,json:async()=>({checked:options.body.checked})};},
     navigator:{clipboard:{writeText:async text=>{if(failCopy)throw Error('denied');copied.push(text);}}},
   });
-  return {checkbox,twin,feedback,status,textarea,details,buttons,copied,requests,save,get reviewed(){return reviewed;},change:()=>events.change({target:checkbox})};
+  return {checkbox,twin,feedback,status,textarea,details,buttons,copied,requests,save,stocked,missingFilter,allFilter,get reviewed(){return reviewed;},change:()=>events.change({target:checkbox})};
 }
 
 test('checkbox sends its value before disabling and synchronizes every copy',async()=>{
@@ -91,6 +106,19 @@ test('copy all includes reviewed items and unchecked copy omits them',async()=>{
   await ui.buttons[1].click();
   assert.equal(ui.copied[1],'Zydrine 2\nRobotics 8\nCadmium 15');
   assert.match(ui.status.textContent,/Copied 3 items/);
+});
+
+test('buy filters reveal stocked items while copying only shortages', async () => {
+  const ui = browser();
+  assert.equal(ui.stocked.hidden, true);
+  ui.allFilter.click();
+  assert.equal(ui.stocked.hidden, false);
+  assert.equal(ui.allFilter.pressed, 'true');
+  assert.equal(ui.missingFilter.pressed, 'false');
+  await ui.buttons[0].click();
+  assert.equal(ui.copied[0], 'Isogen 1200000\nZydrine 2\nRobotics 8\nCadmium 15');
+  ui.missingFilter.click();
+  assert.equal(ui.stocked.hidden, true);
 });
 
 test('category copy includes only lines in the selected category',async()=>{
@@ -150,7 +178,8 @@ test('name buttons copy exact names and select the name when clipboard access fa
 });
 
 function filteredBrowser() {
-  const events={}, windowEvents={}, select={value:'all',focus(){this.focused=true;},addEventListener(type,fn){this[type]=fn;}};
+  const events={}, windowEvents={};
+  const buttons = ['all', 'remaining', 'ready', 'checked'].map(value => filterButton('stepFilter', value, value === 'all'));
   const counter={}, empty={}, controls={}, reset={addEventListener(_,fn){this.click=fn;}};
   const steps = [
     {id:'step-1',dataset:{progress:'0',state:'ready'}},
@@ -165,8 +194,8 @@ function filteredBrowser() {
     step.scrollIntoView=()=>{step.scrolled=true;};
     step.matches=selector=>selector==='[data-step-collapse]';
   });
-  const sequence={querySelectorAll:()=>steps,querySelector:selector=>({
-    '[data-step-filter]':select,'[data-step-filter-count]':counter,'[data-step-filter-empty]':empty,
+  const sequence={querySelectorAll:selector=>selector==='[data-step-filter]'?buttons:steps,querySelector:selector=>({
+    '[data-step-filter-count]':counter,'[data-step-filter-empty]':empty,
     '[data-step-filter-controls]':controls,'[data-step-filter-reset]':reset,
   })[selector]};
   const feedback={};
@@ -179,8 +208,9 @@ function filteredBrowser() {
     location,URL,
     FormData:class{},fetch:async()=>({ok:true,json:async()=>({checked:checkbox.checked})}),
   });
-  return {steps,select,counter,empty,controls,reset,checkbox,location,
-    filter(value){select.value=value;select.change();},
+  return {steps,counter,empty,controls,reset,checkbox,location,
+    activeFilter(){return buttons.find(button => button.pressed === 'true').dataset.stepFilter;},
+    filter(value){buttons.find(button => button.dataset.stepFilter === value).click();},
     visible(){return steps.filter(step=>!step.hidden).map(step=>step.id);},
     changeReminder:()=>Promise.all(events.change.map(fn=>fn({target:checkbox}))),
     follow(hash){events.click.forEach(fn=>fn({target:{closest:()=>({href:location.href+hash})}}));},
@@ -199,6 +229,7 @@ test('step filters distinguish unfinished output, ready inputs and checked remin
   assert.equal(ui.counter.textContent,'1 of 4 steps · inputs first');
   ui.filter('checked');
   assert.deepEqual(ui.visible(),['step-3','step-4']);
+  assert.equal(ui.activeFilter(), 'checked');
 });
 
 test('unchecking the last reviewed step updates filtered results and exposes a reset',async()=>{
@@ -211,7 +242,7 @@ test('unchecking the last reviewed step updates filtered results and exposes a r
   assert.equal(ui.empty.hidden,false);
   assert.equal(ui.counter.textContent,'0 of 4 steps · inputs first');
   ui.reset.click();
-  assert.equal(ui.select.value,'all');
+  assert.equal(ui.activeFilter(),'all');
   assert.equal(ui.visible().length,4);
   assert.equal(ui.empty.hidden,true);
 });
@@ -220,12 +251,12 @@ test('links and hash navigation reveal steps hidden by the current filter',()=>{
   const ui=filteredBrowser();
   ui.filter('ready');
   ui.follow('#step-2');
-  assert.equal(ui.select.value,'all');
+  assert.equal(ui.activeFilter(),'all');
   assert.equal(ui.steps[1].hidden,false);
   assert.equal(ui.steps[1].open,true);
   ui.filter('checked');
   ui.hash('#step-1');
-  assert.equal(ui.select.value,'all');
+  assert.equal(ui.activeFilter(),'all');
   assert.equal(ui.steps[0].hidden,false);
   assert.equal(ui.steps[0].scrolled,true);
 });

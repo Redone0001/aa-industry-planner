@@ -1,4 +1,4 @@
-/* Layout only: Alliance Auth's selected Bootstrap/Bootswatch theme owns colours and controls. */
+/* Use Alliance Auth's selected Bootstrap/Bootswatch theme for surfaces and controls. */
 .aip {
   width: 100%;
   max-width: 1800px;
@@ -82,6 +82,21 @@
 .aip-actions { justify-content: flex-start; }
 .aip-actions .form-label { margin-bottom: 0; }
 .aip-actions .form-select { width: auto; min-width: 9rem; }
+.aip .aip-filter-actions .btn {
+  --aip-filter-color: color-mix(in srgb, var(--bs-primary) 28%, var(--bs-body-color));
+  --bs-btn-color: var(--aip-filter-color);
+  --bs-btn-border-color: var(--aip-filter-color);
+  --bs-btn-hover-color: var(--aip-filter-color);
+  --bs-btn-hover-bg: color-mix(in srgb, var(--aip-filter-color) 12%, var(--bs-body-bg));
+  --bs-btn-hover-border-color: var(--aip-filter-color);
+  --bs-btn-active-color: var(--bs-body-bg);
+  --bs-btn-active-bg: var(--aip-filter-color);
+  --bs-btn-active-border-color: var(--aip-filter-color);
+}
+.aip .aip-filter-actions .btn:focus-visible {
+  outline: 2px solid var(--aip-filter-color);
+  outline-offset: 2px;
+}
 .aip-source { padding-block: 1rem; border-bottom: 1px solid var(--bs-border-color); }
 .aip-source:last-child { border-bottom: 0; }
 .aip-source > div:first-child { min-width: 0; }
@@ -257,6 +272,44 @@
 .aip [data-state="blocked"] { --aip-state: #87939e; }
 .aip [data-state="elsewhere"] { --aip-state: #ffe000; }
 .aip [data-state="purchase"], .aip [data-state="covered"] { --aip-state: #21a5aa; }
+.aip .aip-copy-buy {
+  --bs-btn-color: #221b00;
+  --bs-btn-bg: #d99a20;
+  --bs-btn-border-color: #d99a20;
+  --bs-btn-hover-color: #221b00;
+  --bs-btn-hover-bg: #e5ad42;
+  --bs-btn-hover-border-color: #e5ad42;
+  --bs-btn-active-color: #221b00;
+  --bs-btn-active-bg: #e5ad42;
+  --bs-btn-active-border-color: #e5ad42;
+}
+.aip #buy-list .btn-outline-warning[data-copy-multibuy] {
+  --aip-copy-color: color-mix(in srgb, #d99a20 30%, var(--bs-body-color));
+  --bs-btn-color: var(--aip-copy-color);
+  --bs-btn-border-color: var(--aip-copy-color);
+  --bs-btn-hover-color: var(--aip-copy-color);
+  --bs-btn-hover-bg: color-mix(in srgb, #d99a20 12%, var(--bs-body-bg));
+  --bs-btn-hover-border-color: var(--aip-copy-color);
+  --bs-btn-active-color: #221b00;
+  --bs-btn-active-bg: #d99a20;
+  --bs-btn-active-border-color: #d99a20;
+}
+.aip #production-sequence [data-copy-name-button],
+.aip #buy-list .btn-outline-secondary[data-copy-multibuy] {
+  --bs-btn-color: var(--bs-body-color);
+  --bs-btn-border-color: var(--bs-border-color);
+  --bs-btn-hover-color: var(--bs-body-color);
+  --bs-btn-hover-bg: var(--bs-tertiary-bg);
+  --bs-btn-hover-border-color: var(--bs-body-color);
+  --bs-btn-active-color: var(--bs-body-color);
+  --bs-btn-active-bg: var(--bs-tertiary-bg);
+  --bs-btn-active-border-color: var(--bs-body-color);
+}
+.aip #buy-list .btn[data-copy-multibuy]:disabled {
+  --bs-btn-disabled-color: var(--bs-body-color);
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: var(--bs-border-color);
+}
 .aip .aip-graph-node, .aip .aip-tree-line, .aip .aip-step {
   border: 2px solid var(--aip-state, var(--bs-border-color));
   background: color-mix(in srgb, var(--aip-state) 12%, var(--bs-body-bg));

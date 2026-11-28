@@ -57,19 +57,48 @@
 {% endif %}
 
 <section class="aip-panel card" id="production-sequence" data-step-sequence><div class="aip-section-heading"><h2 class="h5">Production sequence</h2><span class="text-body-secondary" data-step-filter-count role="status">{{ steps|length }} steps · inputs first</span></div>
-<div class="aip-actions mb-3" data-step-filter-controls hidden><label class="form-label" for="step-filter">Show steps</label><select class="form-select" id="step-filter" data-step-filter><option value="all">All steps</option><option value="remaining">To complete</option><option value="ready">Inputs ready</option><option value="checked">Checked reminders</option></select></div>
+<div class="aip-actions aip-filter-actions mb-3" role="group" aria-label="Show production steps" data-step-filter-controls hidden>
+  <button class="btn btn-outline-primary btn-sm active" type="button" data-step-filter="all" aria-pressed="true">All steps</button>
+  <button class="btn btn-outline-primary btn-sm" type="button" data-step-filter="remaining" aria-pressed="false">To complete</button>
+  <button class="btn btn-outline-primary btn-sm" type="button" data-step-filter="ready" aria-pressed="false">Inputs ready</button>
+  <button class="btn btn-outline-primary btn-sm" type="button" data-step-filter="checked" aria-pressed="false">Checked reminders</button>
+</div>
 {% for step in steps %}{% include 'aa_industry_planner/plan_step.html' %}{% empty %}<div class="aip-empty compact"><h3 class="h6">No production steps needed</h3><p>The requested output is already in inventory or is configured as a buy/import input.</p></div>{% endfor %}
 <div class="aip-empty compact" data-step-filter-empty hidden><h3 class="h6">No steps match this filter</h3><button class="btn btn-secondary btn-sm" type="button" data-step-filter-reset>Show all steps</button></div>
 {% if covered_steps %}<details class="aip-details"><summary>{{ covered_steps|length }} production step{{ covered_steps|length|pluralize }} covered by purchases</summary><ul>{% for item in covered_steps %}<li>{{ item.name }}</li>{% endfor %}</ul></details>{% endif %}
 </section>
 <div{% if not plan.archived and steps and candidate_jobs %} class="aip-two-col"{% endif %}><section class="aip-panel card" id="buy-list" data-buy-list>
   <h2 class="h5">Buy / import list</h2>
-  <div class="aip-actions"><button class="btn btn-warning btn-sm" type="button" data-copy-multibuy {% if not inputs %}disabled{% endif %}>Copy buy all</button><button class="btn btn-outline-warning btn-sm" type="button" data-copy-multibuy="unchecked" {% if not inputs %}disabled{% endif %}>Copy unchecked</button>
+  {% if buy_inputs %}
+    <div class="aip-actions aip-filter-actions mb-3" role="group" aria-label="Show buy or import items" data-buy-filter-controls hidden>
+      <button class="btn btn-outline-primary btn-sm active" type="button" data-buy-filter="missing" aria-pressed="true">Missing in inventory</button>
+      <button class="btn btn-outline-primary btn-sm" type="button" data-buy-filter="all" aria-pressed="false">All</button>
+    </div>
+  {% endif %}
+  <div class="aip-actions"><button class="btn aip-copy-buy btn-sm" type="button" data-copy-multibuy {% if not inputs %}disabled{% endif %}>Copy buy all</button><button class="btn btn-outline-warning btn-sm" type="button" data-copy-multibuy="unchecked" {% if not inputs %}disabled{% endif %}>Copy unchecked</button>
   {% for key, label, available in copy_categories %}<button class="btn btn-outline-secondary btn-sm" type="button" data-copy-multibuy="{{ key }}" {% if not available %}disabled{% endif %}>Copy {{ label }}</button>{% endfor %}</div>
   {% include 'aa_industry_planner/gas_multibuy.html' %}
   {% if inputs and plan.use_inventory and not plan.archived %}<p class="form-text">Refresh the plan after moving stock or buying inputs.</p>{% endif %}
   <p data-copy-status role="status" class="form-text"></p>
-  <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Item</th><th class="number">Missing</th><th>Reminder</th></tr></thead><tbody>{% for input in inputs %}<tr data-state="buy" data-buy-line="{{ input.multibuy_line }}" data-buy-category="{{ input.category }}" data-review-item="{{ input.type_id }}" {% if input.checked %}class="is-reviewed"{% endif %}><td>{{ input.name }}{% if input.planned_purchase %}<small>Planned purchase</small>{% endif %}{% for pile in input.stock_elsewhere %}<small><span class="aip-state-badge" data-state="elsewhere">Wrong location</span> {{ pile.quantity|quantity }} at {{ pile.name }}</small>{% endfor %}</td><td class="number">{{ input.missing|quantity }}</td><td>{% include 'aa_industry_planner/checklist.html' with item_id=input.type_id item_name=input.name checked=input.checked %}</td></tr>{% empty %}<tr><td colspan="3">All input materials are covered.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead><tr><th scope="col">Item</th><th scope="col" class="number">Required</th><th scope="col" class="number">Missing</th><th scope="col">Reminder</th></tr></thead>
+      <tbody>
+        {% for input in buy_inputs %}
+          <tr data-buy-row data-review-item="{{ input.type_id }}" {% if input.missing %}data-buy-line="{{ input.multibuy_line }}" data-buy-category="{{ input.category }}"{% else %}hidden{% endif %} {% if input.checked %}class="is-reviewed"{% endif %}>
+            <td>
+              {{ input.name }}{% if input.planned_purchase %}<small>Planned purchase</small>{% endif %}
+              {% for pile in input.stock_elsewhere %}<small><span class="aip-state-badge" data-state="elsewhere">Wrong location</span> {{ pile.quantity|quantity }} at {{ pile.name }}</small>{% endfor %}
+            </td>
+            <td class="number">{{ input.required|quantity }}</td>
+            <td class="number"><span class="aip-state-badge" data-state="{% if input.missing %}buy{% else %}stock{% endif %}">{{ input.missing|quantity }}</span></td>
+            <td>{% include 'aa_industry_planner/checklist.html' with item_id=input.type_id item_name=input.name checked=input.checked %}</td>
+          </tr>
+        {% endfor %}
+        <tr data-buy-filter-empty {% if inputs %}hidden{% endif %}><td colspan="4">All input materials are covered.</td></tr>
+      </tbody>
+    </table>
+  </div>
   <details class="aip-details"><summary>Multibuy text / manual copy</summary><textarea class="form-control" rows="5" readonly aria-label="EVE Multibuy input list" data-multibuy-text>{{ multibuy }}</textarea></details>
   {% if purchase_choices %}<div class="mt-3"><h3 class="h6">Planned purchases</h3>{% for item_id, name in purchase_choices %}<div class="aip-actions mb-2"><span>{{ name }}</span>{% if not plan.archived %}<form method="post" action="{% url 'aa_industry_planner:set_plan_purchase' plan.pk item_id %}">{% csrf_token %}<button class="btn btn-outline-secondary btn-sm" name="action" value="make" aria-label="Make {{ name }} instead">Make instead</button></form>{% endif %}</div>{% endfor %}</div>{% endif %}
 </section>{% if not plan.archived and steps and candidate_jobs %}<section class="aip-panel card"><h2 class="h5">Link an existing job</h2><form method="post" action="{% url 'aa_industry_planner:link_job' plan.pk %}">{% csrf_token %}<label class="form-label" for="link-step">Production step</label><select class="form-select" id="link-step" name="step" required>{% for step in steps %}<option value="{{ step.pk }}">{{ step.position }} · {{ step.item_type.name }}</option>{% endfor %}</select><label class="form-label" for="link-job">Unassigned job</label><select class="form-select" id="link-job" name="job" required>{% for job in candidate_jobs %}<option value="{{ job.pk }}">#{{ job.job_id }} · {{ job.product_type_id|type_name }} · {{ job.status }}</option>{% endfor %}</select><button class="btn btn-primary">Link job</button></form></section>{% endif %}</div>

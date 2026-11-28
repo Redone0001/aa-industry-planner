@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from django.urls import reverse
 
-from aa_industry_planner.models import ManualStock, UserPreferences
+from aa_industry_planner.models import InventorySource, ManualStock, UserPreferences
 from aa_industry_planner.services.jobs import reconcile_jobs, update_progress
 from aa_industry_planner.services.planning import create_plan, refresh_plan
 from aa_industry_planner.services.readiness import annotate_steps, multibuy_text
@@ -180,8 +180,6 @@ def test_ready_storage_is_marked_for_hauling_and_running_output_is_not_stock():
 def test_readiness_updates_from_latest_stock_without_recalculating_plan(
     user, recipes, assigned_facility, client
 ):
-    from aa_industry_planner.models import InventorySource
-
     production = create_plan(user, 1, 10, use_inventory=False)
     source = InventorySource.objects.create(user=user, kind="manual", name="Stock")
     client.force_login(user)
@@ -221,6 +219,26 @@ def test_multibuy_uses_net_shortages_and_plain_integer_quantities(user, recipes,
         )
         == "Isogen 10\nZydrine 1250000"
     )
+
+
+def test_buy_list_can_show_stocked_inputs_without_copying_them(user, types, client, assigned_facility):
+    add_recipe(types, 1, {2: 1, 3: 4, 5: 6})
+    add_recipe(types, 2, {5: 1})
+    stock = InventorySource.objects.create(user=user, kind="manual", name="Stock")
+    ManualStock.objects.create(
+        source=stock, item_type=types[3], quantity=4, facility=assigned_facility
+    )
+    plan = create_plan(user, 1, 1, default_me=0)
+    client.force_login(user)
+    response = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
+    assert [(row["type_id"], row["required"], row["missing"]) for row in response.context["buy_inputs"]] == [
+        (3, 4, 0),
+        (5, 7, 7),
+    ]
+    assert b'data-buy-filter="missing" aria-pressed="true"' in response.content
+    assert b'data-buy-row data-review-item="3" hidden' in response.content
+    assert b'data-buy-row data-review-item="5" data-buy-line="Raw input 7"' in response.content
+    assert response.context["multibuy"] == "Raw input 7"
 
 
 def test_partly_finished_step_needs_only_materials_for_remaining_runs(

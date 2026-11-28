@@ -6,13 +6,20 @@
       document.cookie = `${panel.dataset.panelCookie}=${panel.open ? "open" : "closed"}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
     });
   });
+  const markActive = (buttons, active) => buttons.forEach(button => {
+    const pressed = button === active;
+    button.classList.toggle("active", pressed);
+    button.setAttribute("aria-pressed", String(pressed));
+  });
   let applyStepFilter = () => {};
   const sequence = document.querySelector("[data-step-sequence]");
   if (sequence) {
     const steps = [...sequence.querySelectorAll(".aip-step")];
-    const select = sequence.querySelector("[data-step-filter]");
+    const buttons = [...sequence.querySelectorAll("[data-step-filter]")];
+    const allSteps = buttons.find(button => button.dataset.stepFilter === "all");
     const count = sequence.querySelector("[data-step-filter-count]");
     const empty = sequence.querySelector("[data-step-filter-empty]");
+    let activeFilter = allSteps;
     const filters = {
       all: () => true,
       remaining: step => Number(step.dataset.progress) < 100,
@@ -20,25 +27,31 @@
       checked: step => step.classList.contains("is-reviewed"),
     };
     applyStepFilter = () => {
-      const matches = filters[select.value] || filters.all;
+      const matches = filters[activeFilter.dataset.stepFilter];
       let shown = 0;
       steps.forEach(step => {
         step.hidden = !matches(step);
         if (!step.hidden) shown++;
-        else if (step.contains(document.activeElement)) select.focus({preventScroll: true});
+        else if (step.contains(document.activeElement)) activeFilter.focus({preventScroll: true});
       });
       count.textContent = `${shown} of ${steps.length} steps · inputs first`;
       empty.hidden = !steps.length || shown > 0;
     };
+    const selectFilter = button => {
+      activeFilter = button;
+      markActive(buttons, button);
+      applyStepFilter();
+    };
     const revealStep = hash => {
       const step = steps.find(item => `#${item.id}` === hash);
-      if (step?.hidden) { select.value = "all"; applyStepFilter(); }
+      if (step?.hidden) selectFilter(allSteps);
       if (step?.matches("[data-step-collapse]")) step.open = true;
       return step;
     };
-    select.addEventListener("change", applyStepFilter);
+    buttons.forEach(button => button.addEventListener("click", () => selectFilter(button)));
     sequence.querySelector("[data-step-filter-reset]").addEventListener("click", () => {
-      select.value = "all"; applyStepFilter(); select.focus();
+      selectFilter(allSteps);
+      allSteps.focus();
     });
     document.addEventListener("click", event => {
       if (event.defaultPrevented || event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -55,6 +68,19 @@
     applyStepFilter();
     revealStep(location.hash);
   }
+  document.querySelectorAll("[data-buy-filter-controls]").forEach(controls => {
+    const section = controls.closest("[data-buy-list]");
+    const buttons = controls.querySelectorAll("[data-buy-filter]");
+    const rows = [...section.querySelectorAll("[data-buy-row]")];
+    const empty = section.querySelector("[data-buy-filter-empty]");
+    buttons.forEach(button => button.addEventListener("click", () => {
+      markActive(buttons, button);
+      const showAll = button.dataset.buyFilter === "all";
+      rows.forEach(row => { row.hidden = !showAll && !row.dataset.buyLine; });
+      empty.hidden = rows.some(row => !row.hidden);
+    }));
+    controls.hidden = false;
+  });
   const feeBoxes = [...document.querySelectorAll("[data-fee]")];
   const positionFee = box => {
     const trigger = box.querySelector("button");

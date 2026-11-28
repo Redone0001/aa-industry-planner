@@ -27,13 +27,13 @@ The interface inherits the selected Alliance Auth theme (including Flatly, Darkl
 Requires Python 3.11+, Alliance Auth 5.6.x and its existing database, Redis, Celery worker and Beat infrastructure. Install from the public GitHub repository in the AA virtual environment:
 
 ```sh
-python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.9"
+python -m pip install "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0"
 ```
 
 To include Discord Multiverse:
 
 ```sh
-python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.9"
+python -m pip install "aa-industry-planner[discord] @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0"
 ```
 
 The public HTTPS installation does not require GitHub authentication.
@@ -42,7 +42,7 @@ To upgrade an existing planner installation, activate the AA virtual environment
 
 ```sh
 python -m pip install --upgrade --no-deps \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.9"
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0"
 python manage.py migrate aa_industry_planner
 python manage.py collectstatic --noinput
 ```
@@ -53,7 +53,7 @@ Existing apps may require SDE 0.2.x. The planner supports that version and does 
 
 ```sh
 python -m pip install --upgrade \
-  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.9.9" \
+  "aa-industry-planner @ git+https://github.com/Redone0001/aa-industry-planner.git@v0.10.0" \
   "django-eveonline-sde==0.2.0" \
   "django-esi==10.1.0" \
   "django-modeltranslation==0.19.17"
@@ -148,7 +148,7 @@ See [the industry bonus research and rules](docs/industry-bonuses.md) for primar
 
 ## Plan controls and blueprint settings
 
-New manufacturing plans assume **ME 10 / TE 20**. Set different defaults on the production form, then edit individual manufacturing blueprints under **Blueprint settings** in the saved plan. Empty per-blueprint ME or TE fields inherit that plan's defaults; `0` is an explicit unresearched value. **Apply blueprint settings & refresh** saves the changes and recalculates. Reactions never receive blueprint ME/TE discounts. Item policies now contain only buy/import and explicit recipe selection.
+New manufacturing plans assume **ME 10 / TE 20**. Expand **Default blueprint ME/TE** on the production form to set different defaults, then edit individual manufacturing blueprints under **Blueprint settings** in the saved plan. Empty per-blueprint ME or TE fields inherit that plan's defaults; `0` is an explicit unresearched value. **Apply blueprint settings & refresh** saves the changes and recalculates. Reactions never receive blueprint ME/TE discounts. Item policies now contain only buy/import and explicit recipe selection.
 
 **Max reaction runs per job** and optional **Max reaction duration (hours)** limit job size; duration takes precedence when set. Neither setting is a production target. For example, 105 required runs with a 100-run cap create jobs of 100 and 5 runs. Existing stock reduces demand first, then required runs round up only to the recipe’s whole-run output. SDE production limits and the 30-day job limit still apply. Materials, time and installation fees use the actual runs in each job, including the smaller final batch. Refresh saved plans to apply this behavior.
 
@@ -186,11 +186,11 @@ Production steps start as compact rows: **item × planned output · runs**, with
 
 Hover or focus the installation estimate to see its saved calculation: EIV per run/total, full published system index, cost multiplier, facility tax, SCC, Alpha tax, rounded components and total. Clicking the fee focuses the breakdown without opening the step; Escape dismisses it. **Installation fee calculation inputs** inside the expanded step lists the exact adjusted prices, base quantities and grouped per-job calculations. Existing snapshots retain their saved fees and prompt for **Refresh plan** to capture the new audit trail.
 
-**Production sequence → Show steps** filters the numbered steps: **All steps**, **To complete** (job completion below 100%, including ongoing jobs), **Inputs ready** (blue ready-to-craft steps), or **Checked reminders** (the saved Reviewed checkboxes, independent of job completion). The visible count and empty state update immediately; saving a checkbox updates the checked filter as well. Filters retain the original step numbers and production order. Following a graph, tree or dependency link to a hidden step switches back to All steps so the target is visible.
+The **Production sequence** filter buttons show **All steps**, **To complete** (job completion below 100%, including ongoing jobs), **Inputs ready** (blue ready-to-craft steps), or **Checked reminders** (the saved Reviewed checkboxes, independent of job completion). The visible count and empty state update immediately; saving a checkbox updates the checked filter as well. Filters retain the original step numbers and production order. Following a graph, tree or dependency link to a hidden step switches back to All steps so the target is visible.
 
 **Reviewed** checkboxes are private, persistent reminders for every item, available in the tree, graph inspector, production steps and buy list. Matching entries stay synchronized. Checks survive plan refreshes, visually cross out the item name and do not change stock, quantities, readiness or job completion. Archived plans display the saved reminders without editing them.
 
-**Buy / import list → Copy buy all** copies each net shortage as `Item name quantity`, one line per item with ungrouped integer quantities, for EVE Multibuy. **Copy unchecked** excludes reviewed items. **Copy Minerals**, **Copy PI**, and **Copy Moon goo** copy the matching SDE groups. Moon goo covers raw moon materials. The expandable text area provides a manual-copy fallback. Refresh the plan to recalculate shortages after stock changes.
+The **Buy / import list** opens on **Missing in inventory**. Choose **All** to also see inputs covered by stock. The table shows required and missing quantities. **Copy buy all** copies each net shortage as `Item name quantity`, one line per item with ungrouped integer quantities, for EVE Multibuy. **Copy unchecked** excludes reviewed items. **Copy Minerals**, **Copy PI**, and **Copy Moon goo** copy the matching SDE groups. Moon goo covers raw moon materials. The expandable text area provides a manual-copy fallback. Refresh the plan to recalculate shortages after stock changes.
 
 **Copy Gas** exports raw gas shortages. **Copy Compressed Gas** converts those shortages to their compressed counterparts and includes any compressed gas already required by the plan. Set **Gas decompression yield (%)** under **Configuration → Batch & character defaults** from 90% to 95%. The default is 90%. The compressed quantity rounds up, so 100 units of raw gas need 112 compressed units at 90% or 106 at 95%. The list identifies gases without a compressed option. Both buttons also work on the combined **Production queue**. [CCP gas decompression notes](https://www.eveonline.com/news/view/patch-notes-version-20-03)
 

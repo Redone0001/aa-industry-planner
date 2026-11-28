@@ -142,6 +142,8 @@
     const rows = form.querySelector("[data-target-rows]");
     const template = form.querySelector("[data-target-template]");
     const add = form.querySelector("[data-add-target]");
+    const blueprintDefaults = form.querySelector("[data-blueprint-defaults]");
+    blueprintDefaults?.addEventListener("invalid", () => { blueprintDefaults.open = true; }, true);
     const total = form.elements["targets-TOTAL_FORMS"];
     const limit = Number(form.elements["targets-MAX_NUM_FORMS"].value || 50);
     const visibleRows = () => [...rows.children].filter(row => !row.hidden);

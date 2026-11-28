@@ -13,7 +13,16 @@
       </div>
       <template data-target-template>{% include 'aa_industry_planner/plan_target_fields.html' with target=targets.empty_form %}</template>
       <button class="btn btn-outline-primary btn-sm mb-3" type="button" data-add-target hidden>Add another item</button>
-      {% include 'aa_industry_planner/form_fields.html' %}
+      {{ form.non_field_errors }}
+      {% include 'aa_industry_planner/form_field.html' with field=form.name only %}
+      {% include 'aa_industry_planner/form_field.html' with field=form.use_inventory only %}
+      <details class="aip-details mb-3" data-blueprint-defaults {% if form.default_material_efficiency.errors or form.default_time_efficiency.errors %}open{% endif %}>
+        <summary>Default blueprint ME/TE</summary>
+        <div class="row">
+          {% include 'aa_industry_planner/form_field.html' with field=form.default_material_efficiency field_class='col-sm-6' only %}
+          {% include 'aa_industry_planner/form_field.html' with field=form.default_time_efficiency field_class='col-sm-6' only %}
+        </div>
+      </details>
       <button class="btn btn-primary">Create production plan</button>
     </form>
   </section>
