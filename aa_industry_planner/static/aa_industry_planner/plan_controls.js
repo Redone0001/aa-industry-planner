@@ -150,6 +150,21 @@
       }
     });
   });
+  document.querySelectorAll('[data-copy-skills]').forEach(control => {
+    const text = control.querySelector('[data-copy-skills-text]');
+    const status = control.querySelector('[data-copy-skills-status]');
+    control.querySelector('[data-copy-skills-button]').addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(text.value);
+        text.hidden = true;
+        status.textContent = "Skills copied.";
+      } catch {
+        text.hidden = false;
+        text.focus(); text.select();
+        status.textContent = "Copy the selected skills manually.";
+      }
+    });
+  });
   document.querySelectorAll('[data-copy-multibuy]').forEach(button => button.addEventListener("click", async () => {
     const section = button.closest('[data-buy-list]');
     const textarea = section.querySelector('[data-multibuy-text]');

@@ -1,0 +1,9 @@
+<span data-copy-skills>
+  <button type="button" class="btn btn-sm btn-outline-secondary{% if name %} px-2 py-0 ms-1{% endif %}" data-copy-skills-button
+    aria-label="{% if name %}Copy required skills for {{ name }}{% elif incomplete and skills %}Copy known required {{ activity }} skills{% else %}Copy all required {{ activity }} skills{% endif %}"
+    {% if not skills %}disabled title="{% if skills == None or incomplete %}Skill data unavailable{% else %}No skills required{% endif %}"{% endif %}>
+    {% if name %}Copy skills{% elif incomplete and skills %}Copy known required skills{% else %}Copy all required skills{% endif %}
+  </button>
+  <span class="text-body-secondary small ms-1" data-copy-skills-status role="status"></span>
+  <textarea class="form-control mt-1" rows="4" readonly hidden data-copy-skills-text aria-label="Required skills{% if name %} for {{ name }}{% endif %}">{{ skills|default_if_none:"" }}</textarea>
+</span>

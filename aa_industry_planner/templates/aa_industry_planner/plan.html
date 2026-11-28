@@ -17,6 +17,7 @@
 <details class="aip-panel card aip-plan-panel" data-panel-cookie="aip_blueprints" {% if request.COOKIES.aip_blueprints == 'open' or settings_form.errors or blueprints_formset.total_error_count %}open{% endif %}>
   <summary class="h5">Blueprint settings</summary>
   <p class="form-text">Leave ME and TE overrides blank to use the plan defaults.</p>
+  {% if blueprints_formset.forms %}<div class="mb-2">{% include 'aa_industry_planner/copy_skills.html' with skills=all_blueprint_skills activity='manufacturing' incomplete=incomplete_blueprint_skills only %}</div>{% endif %}
   <form method="post" action="{% url 'aa_industry_planner:refresh_plan' plan.pk %}">
     {% csrf_token %}<input type="hidden" name="form" value="blueprints">
     <fieldset {% if plan.archived %}disabled{% endif %}>
@@ -26,7 +27,7 @@
     <div class="table-responsive"><table class="table table-sm align-middle">
       <thead><tr><th>Manufacturing blueprint</th><th>ME override (%)</th><th>TE override (%)</th><th>BPO/BPC at structure</th></tr></thead>
       <tbody>{% for row in blueprints_formset %}<tr>
-        <td>{{ row.item_type_id }}{% if row.blueprint %}{% include 'aa_industry_planner/copy_name.html' with name=row.blueprint.name only %}{% else %}{{ row.initial.name }}{% endif %}<small>Current ME {{ row.initial.effective_me }} / TE {{ row.initial.effective_te }}</small>{{ row.item_type_id.errors }}{{ row.non_field_errors }}</td>
+        <td>{{ row.item_type_id }}{% if row.blueprint %}{% include 'aa_industry_planner/copy_name.html' with name=row.blueprint.name only %}{% else %}{{ row.initial.name }}{% endif %}{% include 'aa_industry_planner/copy_skills.html' with skills=row.required_skills name=row.blueprint.name|default:row.initial.name only %}<small>Current ME {{ row.initial.effective_me }} / TE {{ row.initial.effective_te }}</small>{{ row.item_type_id.errors }}{{ row.non_field_errors }}</td>
         <td>{{ row.material_efficiency }}{{ row.material_efficiency.errors }}</td><td>{{ row.time_efficiency }}{{ row.time_efficiency.errors }}</td>
         <td>
           {% if row.facility %}
@@ -46,10 +47,11 @@
 <details class="aip-panel card aip-plan-panel" data-panel-cookie="aip_reaction_formulas" {% if request.COOKIES.aip_reaction_formulas == 'open' %}open{% endif %}>
   <summary class="h5">Reaction formulas</summary>
   {% if legacy_formula_jobs %}<p class="text-warning">Some imported jobs predate formula tracking. Refresh sources to confirm the formula counts.</p>{% endif %}
+  <div class="mb-2">{% include 'aa_industry_planner/copy_skills.html' with skills=all_formula_skills activity='reaction' incomplete=incomplete_formula_skills only %}</div>
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
     <thead><tr><th>Formula</th><th>Structure</th><th class="number">Total</th><th class="number">In jobs</th><th class="number">Available</th></tr></thead>
     <tbody>{% for row in reaction_rows %}<tr>
-      <td>{% if row.name_known %}{% include 'aa_industry_planner/copy_name.html' with name=row.name only %}{% else %}{{ row.name }}{% endif %}</td><td>{{ row.facility.name|default:"No structure" }}</td>
+      <td>{% if row.name_known %}{% include 'aa_industry_planner/copy_name.html' with name=row.name only %}{% else %}{{ row.name }}{% endif %}{% include 'aa_industry_planner/copy_skills.html' with skills=row.required_skills name=row.name only %}</td><td>{{ row.facility.name|default:"No structure" }}</td>
       <td class="number">{{ row.supply.total|quantity }}</td><td class="number">{{ row.supply.reserved|length|quantity }}</td><td class="number">{{ row.supply.available|quantity }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>

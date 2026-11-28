@@ -64,6 +64,7 @@ from .services.blueprints import (
     installed_blueprints,
     reaction_formula_inventory,
     reaction_formula_key,
+    skill_copy_lists,
 )
 from .services.capacity import capacity_status
 from .services.costs import plan_cost
@@ -310,9 +311,11 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
             found[asset["type_id"]].add(location)
     installed = installed_blueprints(request.user, sources, blueprint_types, blueprint_locations)
     blueprint_names = ItemType.objects.in_bulk(blueprint_types)
+    blueprint_skills, all_blueprint_skills = skill_copy_lists("manufacturing", blueprint_types)
     for row in blueprints_formset:
         tid = row.blueprint_type_id
         row.blueprint = blueprint_names.get(tid)
+        row.required_skills = blueprint_skills.get(tid)
         row.found = False
         if getattr(row, "facility", None):
             destination = row.facility.structure_id
@@ -327,13 +330,16 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
                 key=str.casefold,
             )
     reaction_formulas = reaction_formula_inventory(request.user, sources, formula_keys, assets)
-    formula_types = ItemType.objects.in_bulk({tid for tid, _ in reaction_sites})
+    formula_ids = {tid for tid, _ in reaction_sites}
+    formula_types = ItemType.objects.in_bulk(formula_ids)
+    formula_skills, all_formula_skills = skill_copy_lists("reaction", formula_ids)
     reaction_rows = [
         dict(
             name=formula_types[tid].name if tid in formula_types else f"Formula #{tid}",
             name_known=tid in formula_types,
             facility=facility,
             supply=reaction_formulas.get((tid, location), FormulaSupply()),
+            required_skills=formula_skills.get(tid),
         )
         for (tid, location), facility in reaction_sites.items()
     ]
@@ -456,7 +462,11 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         candidate_jobs=visible_jobs[:300],
         settings_form=settings_form,
         blueprints_formset=blueprints_formset,
+        all_blueprint_skills=all_blueprint_skills,
+        incomplete_blueprint_skills=bool(blueprint_types - blueprint_skills.keys()),
         reaction_rows=reaction_rows,
+        all_formula_skills=all_formula_skills,
+        incomplete_formula_skills=bool(formula_ids - formula_skills.keys()),
         legacy_formula_jobs=any(supply.unidentified for supply in reaction_formulas.values()),
     )
 

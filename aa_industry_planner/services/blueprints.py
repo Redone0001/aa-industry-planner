@@ -1,7 +1,10 @@
-"""Presence of blueprints and reusable reaction formulas at job locations."""
+"""Blueprint and formula availability and skill requirements."""
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import lru_cache
+from importlib.resources import files
 
 from aa_industry_planner.models import JOB_ACTIVITIES, IndustryJob
 
@@ -15,6 +18,34 @@ class FormulaSupply:
     @property
     def total(self):
         return self.available + len(self.reserved)
+
+
+@lru_cache(maxsize=1)
+def blueprint_skill_catalog():
+    return json.loads(
+        files("aa_industry_planner").joinpath("data/blueprint_skills.json").read_text(encoding="utf-8")
+    )
+
+
+def skill_copy_lists(activity, blueprint_ids):
+    """Return each blueprint's skill list and the highest levels needed across the section."""
+    catalog = blueprint_skill_catalog()
+    names = catalog["skills"]
+    requirements = catalog["activities"][activity]
+
+    def copy_text(skills):
+        ordered = sorted(skills, key=lambda skill_id: names[skill_id].casefold())
+        return "\n".join(f"{names[skill_id]} {skills[skill_id]}" for skill_id in ordered)
+
+    lists, combined = {}, {}
+    for blueprint_id in blueprint_ids:
+        skills = requirements.get(str(blueprint_id))
+        if skills is None:
+            continue
+        lists[blueprint_id] = copy_text(skills)
+        for skill_id, level in skills.items():
+            combined[skill_id] = max(level, combined.get(skill_id, 0))
+    return lists, copy_text(combined)
 
 
 def installed_blueprints(user, sources, type_ids, locations):

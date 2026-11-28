@@ -24,6 +24,7 @@ from aa_industry_planner.models import (
     ProductionPlan,
     UserPreferences,
 )
+from aa_industry_planner.services.blueprints import skill_copy_lists
 from aa_industry_planner.services.jobs import allocate_job
 from aa_industry_planner.services.planning import calculate, create_plan, refresh_plan
 
@@ -224,6 +225,51 @@ def test_blueprints_default_to_me10_te20_without_affecting_reactions(user, recip
     for tid in [1, 2, 3]:
         assert (result.nodes[tid].context.me, result.nodes[tid].context.te) == (10, 20)
     assert (result.nodes[4].context.me, result.nodes[4].context.te) == (0, 0)
+
+
+def test_plan_renders_individual_and_combined_skill_lists_for_both_activities(user, client, types):
+    recipes = types.copy()
+    for product_id, blueprint_id, name in [
+        (1, 950, "Merlin Blueprint"),
+        (2, 2949, "Shadow Blueprint"),
+        (3, 46179, "Silicon Diborite Reaction Formula"),
+        (4, 46201, "Unrefined Fluxed Condensates Reaction Formula"),
+    ]:
+        recipes[product_id + 100] = ItemType.objects.create(
+            pk=blueprint_id, name=name, group=types[1].group
+        )
+    add_recipe(recipes, 1, {2: 1, 3: 1, 4: 1})
+    add_recipe(recipes, 2, {5: 1})
+    add_recipe(recipes, 3, {5: 1}, activity="reaction")
+    add_recipe(recipes, 4, {5: 1}, activity="reaction")
+    plan = create_plan(user, 1, 1, use_inventory=False)
+    client.force_login(user)
+
+    page = client.get(reverse("aa_industry_planner:plan", args=[plan.pk]))
+    assert page.status_code == 200
+    assert {
+        row.blueprint_type_id: row.required_skills for row in page.context["blueprints_formset"]
+    } == {950: "Industry 1", 2949: "Capital Ship Construction 3\nIndustry 3"}
+    assert {row["required_skills"] for row in page.context["reaction_rows"]} == {
+        "Reactions 2",
+        "Reactions 4",
+    }
+    assert page.context["all_blueprint_skills"] == "Capital Ship Construction 3\nIndustry 3"
+    assert page.context["all_formula_skills"] == "Reactions 4"
+    content = page.content
+    assert content.index(b'aria-label="Copy all required manufacturing skills"') < content.index(
+        b'name="settings-default_material_efficiency"'
+    )
+    assert b'aria-label="Copy all required reaction skills"' in content
+    assert b'aria-label="Copy required skills for Merlin Blueprint"' in content
+    assert b'aria-label="Copy required skills for Silicon Diborite Reaction Formula"' in content
+    assert b"Reactions 2</textarea>" in content
+
+
+def test_skill_lists_distinguish_empty_requirements_from_missing_activity_data():
+    lists, combined = skill_copy_lists("manufacturing", {681, 950, 46179})
+    assert lists == {681: "", 950: "Industry 1"}
+    assert combined == "Industry 1"
 
 
 def test_plan_overrides_are_independent_of_other_plans_and_item_policies(user, recipes):

@@ -177,6 +177,41 @@ test('name buttons copy exact names and select the name when clipboard access fa
   assert.equal(status.textContent, 'Copy the selected name manually.');
 });
 
+test('skill buttons copy each full list and expose the exact same list if clipboard access fails', async () => {
+  const controls = ['Industry 1', 'Capital Ship Construction 3\nIndustry 3', 'Reactions 4'].map(value => {
+    const text = {value, hidden: true, focus() { this.focused = true; }, select() { this.selected = true; }};
+    const button = {addEventListener(event, callback) { this[event] = callback; }};
+    const status = {};
+    const fields = {'[data-copy-skills-text]': text, '[data-copy-skills-button]': button, '[data-copy-skills-status]': status};
+    return {button, text, status, querySelector: selector => fields[selector]};
+  });
+  const copied = [];
+  const navigator = {clipboard: {writeText: async text => { copied.push(text); }}};
+  runInNewContext(source, {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: selector => selector === '[data-copy-skills]' ? controls : [],
+      addEventListener() {},
+    },
+    navigator,
+  });
+  for (const control of controls) {
+    await control.button.click();
+    assert.equal(control.status.textContent, 'Skills copied.');
+    assert.equal(control.text.hidden, true);
+  }
+  assert.deepEqual(copied, ['Industry 1', 'Capital Ship Construction 3\nIndustry 3', 'Reactions 4']);
+
+  delete navigator.clipboard;
+  const {button, text, status} = controls[1];
+  await button.click();
+  assert.equal(text.value, 'Capital Ship Construction 3\nIndustry 3');
+  assert.equal(text.hidden, false);
+  assert.equal(text.focused, true);
+  assert.equal(text.selected, true);
+  assert.equal(status.textContent, 'Copy the selected skills manually.');
+});
+
 function filteredBrowser() {
   const events={}, windowEvents={};
   const buttons = ['all', 'remaining', 'ready', 'checked'].map(value => filterButton('stepFilter', value, value === 'all'));
