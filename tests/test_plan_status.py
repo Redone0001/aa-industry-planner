@@ -339,6 +339,53 @@ def test_buy_list_can_show_stocked_inputs_without_copying_them(user, types, clie
     assert response.context["multibuy"] == "Raw input 7"
 
 
+def test_buy_list_only_counts_inputs_for_unstarted_batches(
+    user, source, types, client, assigned_facility
+):
+    add_recipe(types, 1, {2: 2, 3: 1})
+    add_recipe(types, 2, {4: 3, 5: 2})
+    add_recipe(types, 3, {5: 3})
+    stock = ManualStock.objects.create(
+        source=InventorySource.objects.create(user=user, kind="manual", name="Stock"),
+        item_type=types[5],
+        quantity=2,
+        facility=assigned_facility,
+    )
+    plan = create_plan(user, 1, 1, default_me=0)
+    client.force_login(user)
+    url = reverse("aa_industry_planner:plan", args=[plan.pk])
+
+    assert client.get(url).context["multibuy"] == "Raw input 5\nShared material 6"
+
+    job = make_job(user, source, blueprint_type_id=102, product_type_id=2, runs=1)
+    page = client.get(url)
+    assert {(row["type_id"], row["required"], row["missing"]) for row in page.context["buy_inputs"]} == {
+        (4, 3, 3),
+        (5, 5, 5),
+    }
+    assert page.context["multibuy"] == "Raw input 5\nShared material 3"
+
+    stock.quantity = 3
+    stock.save(update_fields=["quantity"])
+    refresh_plan(user, plan.pk)
+    assert client.get(url).context["multibuy"] == "Raw input 3\nShared material 3"
+
+    job.runs, job.status = 2, "ready"
+    job.save(update_fields=["runs", "status"])
+    page = client.get(url)
+    assert page.context["multibuy"] == "Raw input 3"
+    assert [row["type_id"] for row in page.context["buy_inputs"]] == [5]
+    assert b'data-buy-line="Raw input 3"' in page.content
+
+    make_job(user, source, job_id=456, runs=1, status="delivered")
+    page = client.get(url)
+    assert not page.context["buy_inputs"]
+    assert page.context["multibuy"] == ""
+    assert b"All input materials are covered." in page.content
+    plan.refresh_from_db()
+    assert plan.snapshot["nodes"]["5"]["required"] == 7
+
+
 def test_partly_finished_step_needs_only_materials_for_remaining_runs(
     user, recipes, assigned_facility
 ):

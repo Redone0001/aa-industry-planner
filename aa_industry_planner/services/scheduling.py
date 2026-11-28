@@ -146,7 +146,26 @@ def prepare_step(step, needed, consumed, materials):
     )
 
 
-def remaining_work(steps, root_id=None, *, target_demand=None, include_external=False):
+def stock_consumption_since(steps, calculated_at):
+    """Estimate what linked jobs installed after the stock snapshot have used."""
+    used = {}
+    for step in steps:
+        installed = sum(
+            a.quantity for a in step.allocations.all() if a.job.start_date > calculated_at
+        )
+        if not installed:
+            continue
+        materials = {int(tid): amount for tid, amount in step.details.get("materials", {}).items()}
+        after = prepare_step(step, step.output_quantity, 0, materials).remaining_inputs()
+        # Restoring this output to demand gives the runs pending before these jobs started.
+        before = prepare_step(step, step.output_quantity + installed, 0, materials).remaining_inputs()
+        used[step.item_type_id] = {tid: amount - after.get(tid, 0) for tid, amount in before.items()}
+    return used
+
+
+def remaining_work(
+    steps, root_id=None, *, target_demand=None, include_external=False, stock_consumption=None
+):
     """Calculate future demand starting at the outputs and moving toward their inputs."""
     by_type = {step.item_type_id: step for step in steps}
     materials = {}
@@ -187,8 +206,11 @@ def remaining_work(steps, root_id=None, *, target_demand=None, include_external=
             # Installed downstream jobs use their original stock allocation first.
             # Neither that stock nor upstream output already used is available again.
             used = max(0, original - future)
-            row.stock[child] = max(0, stock[child, tid] - used)
-            consumed[child] += max(0, used - stock[child, tid])
+            from_stock = min(used, stock[child, tid])
+            if stock_consumption is not None:
+                from_stock = min(from_stock, stock_consumption.get(tid, {}).get(child, 0))
+            row.stock[child] = stock[child, tid] - from_stock
+            consumed[child] += used - from_stock
             demand[child] += max(0, future - row.stock[child])
             parents[child] -= 1
             if not parents[child]:

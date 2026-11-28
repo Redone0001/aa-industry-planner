@@ -95,6 +95,7 @@ from .services.planning import create_plan_for_targets
 from .services.planning import refresh_plan as refresh_production_plan
 from .services.presentation import (
     fee_presentation,
+    plan_buy_inputs,
     plan_progress,
     plan_views,
     visible_stock_details,
@@ -359,8 +360,9 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         reaction_formulas=reaction_formulas,
     )
 
+    display_snapshot = dict(snapshot, nodes=nodes)
     tree, dependency_graph = plan_views(
-        dict(snapshot, nodes=nodes),
+        display_snapshot,
         {
             tid: {
                 "position": step.position,
@@ -375,14 +377,7 @@ def _plan_page(request, production, settings_form=None, blueprints_formset=None)
         checked,
     )
     purchase_choices = snapshot.get("purchase_choices", {})
-    buy_inputs = sorted(
-        (
-            dict(node, checked=int(tid) in checked, planned_purchase=tid in purchase_choices)
-            for tid, node in nodes.items()
-            if node["required"] and not node["runs"]
-        ),
-        key=lambda row: row["name"].casefold(),
-    )
+    buy_inputs = plan_buy_inputs(display_snapshot, steps, checked, production.calculated_at)
     inputs = [row for row in buy_inputs if row["missing"]]
     classifications = {
         tid: (group, category)

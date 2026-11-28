@@ -4,6 +4,8 @@ from collections import Counter, defaultdict, deque
 
 from django.utils.dateparse import parse_datetime
 
+from .scheduling import remaining_work, saved_targets, stock_consumption_since, target_production
+
 NODE_WIDTH = 240
 NODE_HEIGHT = 136
 ROW_GAP = 26
@@ -56,6 +58,72 @@ def visible_stock_details(details, transfer_names):
             dict(row, stock_elsewhere=eligible_piles(row))
             for row in details.get("input_inventory", [])
         ],
+    )
+
+
+def remaining_purchase(node, demand, stock_consumption):
+    required = sum(demand.values())
+    stock = 0
+    elsewhere = []
+    visible = {pile["location_id"]: pile["name"] for pile in node.get("stock_elsewhere", [])}
+    requirements = node.get("inventory_requirements", [])
+    if not requirements:
+        # Older plans saved one pooled stock allocation per item.
+        demand = {None: required}
+        stock_consumption = {None: sum(stock_consumption.values())}
+        requirements = [dict(consumer_id=None, from_stock=node["from_stock"])]
+
+    for row in requirements:
+        consumer = row["consumer_id"]
+        future = demand.get(consumer, 0)
+        # Installed jobs can have used the stock saved for this consumer.
+        covered = min(future, max(0, row["from_stock"] - stock_consumption.get(consumer, 0)))
+        stock += covered
+        missing = future - covered
+        for key, quantity in row.get("elsewhere", {}).items():
+            location = int(key)
+            if missing > 0 and location in visible:
+                amount = min(missing, quantity)
+                elsewhere.append(dict(location_id=location, name=visible[location], quantity=amount))
+                missing -= amount
+
+    return dict(
+        node, required=required, from_stock=stock, missing=required - stock, stock_elsewhere=elsewhere
+    )
+
+
+def plan_buy_inputs(snapshot, steps, checked, calculated_at):
+    consumed = stock_consumption_since(steps, calculated_at)
+    work, _ = remaining_work(
+        steps,
+        target_demand=target_production(snapshot),
+        include_external=True,
+        stock_consumption=consumed,
+    )
+    demand = defaultdict(dict)
+    stock_consumption = defaultdict(dict)
+    for consumer, materials in consumed.items():
+        for item, amount in materials.items():
+            stock_consumption[item][consumer] = amount
+    for target in saved_targets(snapshot):
+        demand[target["type_id"]][None] = target["quantity"]
+    for consumer, row in work.items():
+        for item, amount in row.remaining_inputs().items():
+            if amount:
+                demand[item][consumer] = amount
+
+    choices = snapshot.get("purchase_choices", {})
+    return sorted(
+        (
+            dict(
+                remaining_purchase(node, demand[int(tid)], stock_consumption[int(tid)]),
+                checked=int(tid) in checked,
+                planned_purchase=tid in choices,
+            )
+            for tid, node in snapshot.get("nodes", {}).items()
+            if node["required"] and not node["runs"] and int(tid) in demand
+        ),
+        key=lambda row: row["name"].casefold(),
     )
 
 

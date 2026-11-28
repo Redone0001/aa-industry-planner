@@ -82,7 +82,7 @@
   <p data-copy-status role="status" class="form-text"></p>
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
-      <thead><tr><th scope="col">Item</th><th scope="col" class="number">Required</th><th scope="col" class="number">Missing</th><th scope="col">Reminder</th></tr></thead>
+      <thead><tr><th scope="col">Item</th><th scope="col" class="number">Remaining</th><th scope="col" class="number">Missing</th><th scope="col">Reminder</th></tr></thead>
       <tbody>
         {% for input in buy_inputs %}
           <tr data-buy-row data-review-item="{{ input.type_id }}" {% if input.missing %}data-buy-line="{{ input.multibuy_line }}" data-buy-category="{{ input.category }}"{% else %}hidden{% endif %} {% if input.checked %}class="is-reviewed"{% endif %}>
